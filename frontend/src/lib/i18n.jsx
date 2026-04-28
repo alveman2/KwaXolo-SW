@@ -6,6 +6,9 @@ export const STRINGS = {
       findOpportunity: "Find opportunity",
       courses: "Courses",
       teacher: "Teacher",
+      myClasses: "My classes",
+      joinClass: "Join a class",
+      signOut: "Sign out",
     },
     landing: {
       headline1: "See the opportunity",
@@ -34,6 +37,7 @@ export const STRINGS = {
     },
     courses: {
       tabs: {
+        myFeed: "My class courses",
         phase1: "Phase 1: Getting started",
         phase2: "Phase 2: Productivity",
         business: "Business basics",
@@ -43,6 +47,7 @@ export const STRINGS = {
       beginner: "Beginner",
       intermediate: "Intermediate",
       noCourses: "No courses in this category yet.",
+      myFeedEmpty: "Join a class to see courses from your teachers.",
       loading: "Loading courses...",
     },
     courseDetail: {
@@ -57,6 +62,9 @@ export const STRINGS = {
       translating: "Translating to isiZulu...",
       aiTranslated: "AI-translated",
       comingSoonMobile: "Coming soon to iOS and Android",
+      markComplete: "Mark complete ✓",
+      marking: "Saving...",
+      lessonCompleted: "✓ Completed",
     },
     teacher: {
       heading: "Generate a new course",
@@ -79,6 +87,18 @@ export const STRINGS = {
     header: {
       restart: "Home",
     },
+    joinClass: {
+      heading: "Join a class",
+      subhead: "Enter the code your teacher gave you (format: ABCD-123).",
+      inputPlaceholder: "ABCD-123",
+      submitButton: "Join class",
+      joining: "Joining...",
+      successJoined: "You've joined:",
+      taughtBy: "Taught by:",
+      myClasses: "My classes",
+      viewCourses: "View courses →",
+      noClasses: "You haven't joined any classes yet.",
+    },
   },
 
   zu: {
@@ -86,6 +106,9 @@ export const STRINGS = {
       findOpportunity: "Thola ithuba",
       courses: "Izifundo",
       teacher: "Uthisha",
+      myClasses: "Izigaba zami",
+      joinClass: "Joyina isigaba",
+      signOut: "Phuma",
     },
     landing: {
       headline1: "Bona ithuba",
@@ -114,6 +137,7 @@ export const STRINGS = {
     },
     courses: {
       tabs: {
+        myFeed: "Izifundo zesigaba sami",
         phase1: "Phase 1: Ukuqala",
         phase2: "Phase 2: Ukukhiqiza",
         business: "Izisekelo zoshishilezi",
@@ -123,6 +147,7 @@ export const STRINGS = {
       beginner: "Umqalisi",
       intermediate: "Phakathi",
       noCourses: "Awekho izifundo kule ndawo njengamanje.",
+      myFeedEmpty: "Joyina isigaba ukuze ubone izifundo zothisha wakho.",
       loading: "Iyalayisha izifundo...",
     },
     courseDetail: {
@@ -137,6 +162,9 @@ export const STRINGS = {
       translating: "Iyahumusha ngesiZulu...",
       aiTranslated: "Kuhunyushwe nge-AI",
       comingSoonMobile: "Kuzofika ku-iOS naku-Android",
+      markComplete: "Phawula njengokuqediwe ✓",
+      marking: "Kuyagcina...",
+      lessonCompleted: "✓ Kuqedwe",
     },
     teacher: {
       heading: "Khipha isifundo esisha",
@@ -158,6 +186,18 @@ export const STRINGS = {
     },
     header: {
       restart: "Ikhaya",
+    },
+    joinClass: {
+      heading: "Joyina isigaba",
+      subhead: "Faka ikhodi uthisha akupha yona (isimo: ABCD-123).",
+      inputPlaceholder: "ABCD-123",
+      submitButton: "Joyina isigaba",
+      joining: "Iyajoyina...",
+      successJoined: "Ujoyinile:",
+      taughtBy: "Kufundiswa ngu:",
+      myClasses: "Izigaba zami",
+      viewCourses: "Bona izifundo →",
+      noClasses: "Awukajoyini izigaba naziphi.",
     },
   },
 };

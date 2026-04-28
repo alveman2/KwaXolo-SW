@@ -115,10 +115,6 @@ export default function LoginPage() {
   );
 }
 
-export function navigateByRole(role, navigate) {
-  if (role === "teacher") {
-    navigate("/teacher");
-  } else {
-    navigate("/app");
-  }
+export function navigateByRole(_role, navigate) {
+  navigate("/app");
 }

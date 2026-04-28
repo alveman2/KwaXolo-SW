@@ -3,13 +3,8 @@ import { useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import App from "./App";
-import StudentLayout from "./pages/student/StudentLayout";
-import FeedPage from "./pages/student/FeedPage";
-import ProgressPage from "./pages/student/ProgressPage";
-import JoinPage from "./pages/student/JoinPage";
-import StudentCourseView from "./pages/student/StudentCourseView";
 
-function RequireAuth({ children, allowedRoles }) {
+function RequireAuth({ children }) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -21,7 +16,7 @@ function RequireAuth({ children, allowedRoles }) {
   }
 
   if (!user) return <Navigate to="/" replace />;
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (!["student", "teacher"].includes(user.role)) {
     return <Navigate to="/" replace />;
   }
 
@@ -39,8 +34,7 @@ function GuestOnly({ children }) {
     );
   }
 
-  if (user) {
-    if (user.role === "teacher") return <Navigate to="/teacher" replace />;
+  if (user && ["student", "teacher"].includes(user.role)) {
     return <Navigate to="/app" replace />;
   }
 
@@ -54,22 +48,9 @@ export default function AppRouter() {
       <Route path="/" element={<GuestOnly><LoginPage /></GuestOnly>} />
       <Route path="/register" element={<GuestOnly><RegisterPage /></GuestOnly>} />
 
-      {/* Student routes */}
+      {/* Unified shell for both students and teachers */}
       <Route path="/app" element={
-        <RequireAuth allowedRoles={["student"]}>
-          <StudentLayout />
-        </RequireAuth>
-      }>
-        <Route index element={<Navigate to="/app/feed" replace />} />
-        <Route path="feed" element={<FeedPage />} />
-        <Route path="progress" element={<ProgressPage />} />
-        <Route path="join" element={<JoinPage />} />
-        <Route path="course/:courseId" element={<StudentCourseView />} />
-      </Route>
-
-      {/* Teacher routes — existing app wrapped */}
-      <Route path="/teacher/*" element={
-        <RequireAuth allowedRoles={["teacher"]}>
+        <RequireAuth>
           <App />
         </RequireAuth>
       } />

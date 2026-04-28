@@ -1,21 +1,32 @@
 import { useState, useEffect } from "react";
 import { getCourse, translate } from "../lib/api.js";
+import { getMyProgress, markLessonComplete } from "../lib/studentApi.js";
+import { useAuth } from "../context/AuthContext";
 import { useLanguage, useStrings } from "../lib/i18n.jsx";
 import PhoneMockup from "./PhoneMockup.jsx";
 
 export default function CourseDetailScreen({ courseId, onBack }) {
+  const { user } = useAuth();
+  const isStudent = user?.role === "student";
+
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lessonIndex, setLessonIndex] = useState(0);
 
+  // Translation state
   const [translatedCourse, setTranslatedCourse] = useState(null);
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState(null);
 
+  // Student progress state
+  const [completedLessons, setCompletedLessons] = useState(new Set());
+  const [marking, setMarking] = useState(false);
+
   const { lang } = useLanguage();
   const t = useStrings();
 
+  // Load course
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -27,6 +38,20 @@ export default function CourseDetailScreen({ courseId, onBack }) {
       .finally(() => setLoading(false));
   }, [courseId]);
 
+  // Load student progress
+  useEffect(() => {
+    if (!isStudent) return;
+    getMyProgress()
+      .then((rows) => {
+        const done = new Set(
+          rows.filter((r) => r.course_id === courseId).map((r) => r.lesson_index)
+        );
+        setCompletedLessons(done);
+      })
+      .catch(() => {}); // progress failure is non-fatal
+  }, [courseId, isStudent]);
+
+  // Translation effect
   useEffect(() => {
     if (!course) return;
 
@@ -36,7 +61,6 @@ export default function CourseDetailScreen({ courseId, onBack }) {
       return;
     }
 
-    // lang === "zu": translate course content
     setTranslating(true);
     setTranslateError(null);
 
@@ -71,6 +95,19 @@ export default function CourseDetailScreen({ courseId, onBack }) {
       .finally(() => setTranslating(false));
   }, [course, lang]);
 
+  async function handleMarkComplete() {
+    if (completedLessons.has(lessonIndex)) return;
+    setMarking(true);
+    try {
+      await markLessonComplete(courseId, lessonIndex);
+      setCompletedLessons((prev) => new Set([...prev, lessonIndex]));
+    } catch {
+      // already completed is fine; other errors are silent
+    } finally {
+      setMarking(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="py-8 space-y-4">
@@ -99,8 +136,9 @@ export default function CourseDetailScreen({ courseId, onBack }) {
   const lesson = lessons[lessonIndex];
   const isFirst = lessonIndex === 0;
   const isLast = lessonIndex === lessons.length - 1;
+  const isCurrentCompleted = completedLessons.has(lessonIndex);
 
-  // For PhoneMockup we always pass the raw lesson for index lookup, then the display lesson
+  // For PhoneMockup index lookup
   const rawLessons = course.lessons ?? [];
 
   return (
@@ -121,7 +159,6 @@ export default function CourseDetailScreen({ courseId, onBack }) {
         </div>
       )}
 
-      {/* Translation error */}
       {translateError && (
         <div className="mb-4 text-xs text-stone-400">{translateError}</div>
       )}
@@ -170,21 +207,22 @@ export default function CourseDetailScreen({ courseId, onBack }) {
             className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full transition font-medium ${
               i === lessonIndex
                 ? "bg-kwaxolo-green text-white"
+                : isStudent && completedLessons.has(i)
+                ? "bg-kwaxolo-green/20 text-kwaxolo-green hover:bg-kwaxolo-green/30"
                 : i < lessonIndex
                 ? "bg-stone-200 text-stone-600 hover:bg-stone-300"
                 : "bg-stone-100 text-stone-500 hover:bg-stone-200"
             }`}
           >
-            {i + 1}
+            {isStudent && completedLessons.has(i) && i !== lessonIndex ? "✓" : i + 1}
           </button>
         ))}
       </div>
 
-      {/* Two-column layout on desktop: lesson content left, phone mockup right */}
+      {/* Two-column layout on desktop */}
       <div className="flex gap-10 items-start">
         {/* Left column: lesson content + navigation */}
         <div className="flex-1 min-w-0">
-          {/* Lesson content */}
           {lesson && (
             <div className="bg-white border border-stone-200 rounded-2xl p-6 mb-6">
               <h3 className="text-xl font-bold text-stone-900 mb-4">
@@ -220,7 +258,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
           )}
 
           {/* Navigation */}
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={() => setLessonIndex((i) => i - 1)}
               disabled={isFirst}
@@ -228,6 +266,23 @@ export default function CourseDetailScreen({ courseId, onBack }) {
             >
               {t.courseDetail.previousLesson}
             </button>
+
+            {/* Student mark complete */}
+            {isStudent && !isCurrentCompleted && (
+              <button
+                onClick={handleMarkComplete}
+                disabled={marking}
+                className="flex-1 sm:flex-none bg-kwaxolo-gold hover:bg-kwaxolo-gold/90 disabled:opacity-50 text-stone-900 font-semibold px-6 py-3 rounded-xl transition"
+              >
+                {marking ? t.courseDetail.marking : t.courseDetail.markComplete}
+              </button>
+            )}
+
+            {isStudent && isCurrentCompleted && (
+              <span className="flex items-center px-4 py-3 text-sm text-kwaxolo-green font-medium">
+                {t.courseDetail.lessonCompleted}
+              </span>
+            )}
 
             {isLast ? (
               <button
