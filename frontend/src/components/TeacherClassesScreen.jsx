@@ -5,9 +5,11 @@ import {
   publishCourse,
   unpublishCourse,
   getClassStudents,
+  getClassCourses,
   getSchools,
 } from "../lib/teacherApi.js";
 import { listCourses } from "../lib/api.js";
+import { useStrings } from "../lib/i18n.jsx";
 
 export default function TeacherClassesScreen() {
   const [classes, setClasses] = useState([]);
@@ -209,14 +211,18 @@ function CreateClassForm({ onCreated }) {
 // ─── Class detail view ───────────────────────────────────────────────────────
 
 function ClassDetail({ classInfo, onBack }) {
+  const t = useStrings();
+  const tc = t.teacherClasses;
+
   const [tab, setTab] = useState("courses"); // "courses" | "students"
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
-  const [courses, setCourses] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
+  const [publishedCourses, setPublishedCourses] = useState([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [selectedCourseToPublish, setSelectedCourseToPublish] = useState("");
+  const [recentlyPublished, setRecentlyPublished] = useState(false);
 
   useEffect(() => {
     loadCourses();
@@ -229,16 +235,23 @@ function ClassDetail({ classInfo, onBack }) {
   async function loadCourses() {
     setCoursesLoading(true);
     try {
-      const all = await listCourses();
+      const [all, published] = await Promise.all([
+        listCourses(),
+        getClassCourses(classInfo.id),
+      ]);
       setAllCourses(all);
-      // Get class details to find published courses
-      const cls = await getTeacherClasses();
-      const thisClass = cls.find((c) => c.id === classInfo.id);
-      // Fetch published courses by re-checking (we need the class_courses data)
-      // For now we'll track published state via the students endpoint or local state
-      setCourses(all);
+      setPublishedCourses(published);
     } finally {
       setCoursesLoading(false);
+    }
+  }
+
+  async function loadPublishedCourses() {
+    try {
+      const published = await getClassCourses(classInfo.id);
+      setPublishedCourses(published);
+    } catch {
+      // non-fatal
     }
   }
 
@@ -258,8 +271,9 @@ function ClassDetail({ classInfo, onBack }) {
     try {
       await publishCourse(classInfo.id, selectedCourseToPublish);
       setSelectedCourseToPublish("");
-      // Reload to refresh counts
-      onBack();
+      await loadPublishedCourses();
+      setRecentlyPublished(true);
+      setTimeout(() => setRecentlyPublished(false), 3000);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -268,9 +282,10 @@ function ClassDetail({ classInfo, onBack }) {
   }
 
   async function handleUnpublish(courseId) {
+    if (!window.confirm(tc.removeConfirm)) return;
     try {
       await unpublishCourse(classInfo.id, courseId);
-      onBack();
+      await loadPublishedCourses();
     } catch (err) {
       alert(err.message);
     }
@@ -315,7 +330,7 @@ function ClassDetail({ classInfo, onBack }) {
             tab === "courses" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"
           }`}
         >
-          Courses ({classInfo.course_count})
+          Courses ({publishedCourses.length})
         </button>
         <button
           onClick={() => setTab("students")}
@@ -354,19 +369,37 @@ function ClassDetail({ classInfo, onBack }) {
                 {publishing ? "..." : "Publish"}
               </button>
             </div>
+            {recentlyPublished && (
+              <p className="mt-2 text-sm text-kwaxolo-green font-medium">{tc.publishedSuccess}</p>
+            )}
           </div>
 
+          {/* Published courses list */}
           {coursesLoading ? (
             <div className="h-20 bg-stone-100 rounded-xl animate-pulse" />
-          ) : classInfo.course_count === 0 ? (
-            <p className="text-sm text-stone-500 text-center py-8">
-              No courses published yet. Use the form above to publish one.
-            </p>
+          ) : publishedCourses.length === 0 ? (
+            <p className="text-sm text-stone-500 text-center py-8">{tc.noPublishedCourses}</p>
           ) : (
-            <p className="text-sm text-stone-500">
-              {classInfo.course_count} course(s) published to this class.
-              Students will see them in their feed once they join.
-            </p>
+            <div className="space-y-3">
+              {publishedCourses.map((course) => (
+                <div
+                  key={course.id}
+                  className="border border-stone-200 rounded-xl p-4 flex items-start gap-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-stone-900 text-sm">{course.title}</div>
+                    <div className="text-xs text-stone-500 mt-0.5 line-clamp-1">{course.description}</div>
+                    <div className="text-xs text-stone-400 mt-1">{course.duration_minutes} min · {course.level}</div>
+                  </div>
+                  <button
+                    onClick={() => handleUnpublish(course.id)}
+                    className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition"
+                  >
+                    {tc.removeButton}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -406,7 +439,7 @@ function ClassDetail({ classInfo, onBack }) {
                       <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-kwaxolo-green rounded-full"
-                          style={{ width: `${Math.min(100, (s.progress.length / Math.max(1, classInfo.course_count * 4)) * 100)}%` }}
+                          style={{ width: `${Math.min(100, (s.progress.length / Math.max(1, publishedCourses.length * 4)) * 100)}%` }}
                         />
                       </div>
                     </div>

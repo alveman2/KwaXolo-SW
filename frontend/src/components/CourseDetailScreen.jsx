@@ -61,6 +61,18 @@ export default function CourseDetailScreen({ courseId, onBack }) {
       return;
     }
 
+    // Use pre-translated content if available (no API call needed)
+    if (lang === "zu" && course.translations?.zu) {
+      setTranslatedCourse({
+        ...course,
+        title: course.translations.zu.title,
+        description: course.translations.zu.description,
+        lessons: course.translations.zu.lessons,
+      });
+      setTranslating(false);
+      return;
+    }
+
     setTranslating(true);
     setTranslateError(null);
 

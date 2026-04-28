@@ -341,6 +341,55 @@ app.post("/api/refine", async (req, res) => {
 });
 
 // ============================================================================
+// ROUTE: /api/translate
+// ============================================================================
+const translationCache = new Map();
+
+app.post("/api/translate", async (req, res) => {
+  if (!openai) {
+    return res.status(503).json({ error: "Translation service unavailable (no API key)." });
+  }
+
+  const { text, targetLang } = req.body;
+  if (!text || !targetLang) {
+    return res.status(400).json({ error: "text and targetLang are required." });
+  }
+  if (!["en", "zu"].includes(targetLang)) {
+    return res.status(400).json({ error: "targetLang must be 'en' or 'zu'." });
+  }
+
+  const cacheKey = targetLang + ":" + JSON.stringify(text);
+  if (translationCache.has(cacheKey)) {
+    return res.json({ translated: translationCache.get(cacheKey) });
+  }
+
+  const isObject = typeof text === "object";
+  const direction = targetLang === "zu" ? "from English to isiZulu (Zulu)" : "from isiZulu (Zulu) to English";
+
+  const systemPrompt = `You are a professional translator ${direction}, as spoken in KwaZulu-Natal, South Africa. Translate accurately and naturally for a Grade 8–12 audience. Preserve proper nouns exactly: KwaXolo, Port Shepstone, Margate, Southbroom, Port Edward, Durban, Msenti Hub, SASSA, SEDA, Microsoft, Khan Academy, KwaXolo Caves Adventures, WhatsApp, Gmail. Preserve all numbers and currency (R amounts) exactly. ${isObject ? "Translate all string values in the JSON, preserve the exact same structure, and return ONLY valid JSON with no markdown fences or commentary." : "Return ONLY the translated text — no explanation, no quotes, no markdown."}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: isObject ? { type: "json_object" } : undefined,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: isObject ? JSON.stringify(text) : text },
+      ],
+      temperature: 0.3,
+    });
+
+    const raw = completion.choices[0].message.content;
+    const translated = isObject ? JSON.parse(raw) : raw;
+    translationCache.set(cacheKey, translated);
+    res.json({ translated });
+  } catch (err) {
+    console.error("Translate error:", err);
+    res.status(500).json({ error: "Translation failed.", detail: err.message });
+  }
+});
+
+// ============================================================================
 // ROUTES: /api/courses
 // ============================================================================
 

@@ -46,6 +46,14 @@ export async function unpublishCourse(classId, courseId) {
   return data;
 }
 
+export async function getClassCourses(classId) {
+  const res = await fetch(`/api/teacher/classes/${classId}/courses`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to load class courses");
+  return res.json();
+}
+
 export async function getClassStudents(classId) {
   const res = await fetch(`/api/teacher/classes/${classId}/students`, {
     headers: authHeaders(),

@@ -99,6 +99,12 @@ export const STRINGS = {
       viewCourses: "View courses →",
       noClasses: "You haven't joined any classes yet.",
     },
+    teacherClasses: {
+      noPublishedCourses: "No courses published to this class yet.",
+      removeButton: "Remove",
+      publishedSuccess: "Course published ✓",
+      removeConfirm: "Remove this course from the class?",
+    },
   },
 
   zu: {
@@ -198,6 +204,12 @@ export const STRINGS = {
       myClasses: "Izigaba zami",
       viewCourses: "Bona izifundo →",
       noClasses: "Awukajoyini izigaba naziphi.",
+    },
+    teacherClasses: {
+      noPublishedCourses: "Awekho izifundo ezikhishiwe kule sigaba.",
+      removeButton: "Susa",
+      publishedSuccess: "Isifundo sikhishiwe ✓",
+      removeConfirm: "Susa le isifundo emagabeni?",
     },
   },
 };

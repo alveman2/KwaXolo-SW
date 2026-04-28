@@ -20,9 +20,18 @@ db.exec(`
     duration_minutes INTEGER NOT NULL,
     lessons_json     TEXT    NOT NULL,
     created_by       TEXT    NOT NULL,
-    created_at       INTEGER NOT NULL
+    created_at       INTEGER NOT NULL,
+    translations_json TEXT
   )
 `);
+
+// Migration: add translations_json to existing databases
+{
+  const cols = db.prepare("PRAGMA table_info(courses)").all();
+  if (!cols.find(c => c.name === "translations_json")) {
+    db.prepare("ALTER TABLE courses ADD COLUMN translations_json TEXT").run();
+  }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS schools (
@@ -140,6 +149,54 @@ const SEED = [
         ],
       },
     ],
+    translations: {
+      zu: {
+        title: "Ukusebenzisa ikhompuyutha okokuqala",
+        description: "Qala lapha. Funda ukuvula ikhompuyutha, ukuhambisa imawisi, ukuthayipha kukhibhodi, nokuvula uhlelo — isinyathelo ngesinyathelo.",
+        lessons: [
+          {
+            title: "Ukuvula nokuvala ikhompuyutha",
+            content: "Lapho uhlala phambi kwekhompuyutha okokuqala, ingase ikuzwise ungajwayelanga. Into ebaluleke kakhulu ukwazi ukuthi awukwazi ukiyaphula ngokucindezelwa kwezikhiye ezingalungile. Cindezela inkinobho yamandla — evame ukuba ngasohlangothini noma phambili kwemishini — ulinde. Ikhompuyutha idinga imizuzu engu-30 ukuqala. Uzobona isikrini sibuza iphasiwedi. Uma usezindlini zesikole ezinamalab'ekhompuyutha, uthisha wakho uzokunika iphasiwedi.\n\nUma uqedile, ungayisusi amandla ngokulokothisa intambo. Esikhundleni salokho, chofoza isithonjana esikwesokunxele esansi esikhoneni (esibizwa i-Start button), bese ukhetha i-'Shut Down.' Lokhu kunika ikhompuyutha isikhathi sokulondoloza konke ngokufanele. Ukususa intambo ngokulokothisa kufana nokuvala ivenkile yakho ngaphandle kokukhiyela — izinto zishiywa ngendlela engalungile.\n\nUma isikrini siba mnyama ngenkathi usebenzisa, ungapheli amandla. Ikhompuyutha ilele nje, ilondoloza amandla. Hambisa imawisi noma cindezela nayikuphi ikhiye bese isikrini sibuya.",
+            keyPoints: [
+              "Cindezela inkinobho yamandla ulinde imizuzu engu-30 ukuqala",
+              "Hlala usebenzisa i-Shut Down — ungayisusi amandla ngokulokothisa",
+              "Isikrini esimnyama kusho ukuthi ikhompuyutha ilele, hhayi ukuthi iphukile",
+              "Awukwazi ukuphula ikhompuyutha ngokucindezelwa kwezikhiye",
+            ],
+          },
+          {
+            title: "Ukusebenzisa imawisi",
+            content: "Imawisi ilawula umcibisholo obonwa esikrini. Uma uhambisa imawisi etafuleni, umcibisholo esikrini uhamba ngendlela efanayo. Thatha isikhashana uhambise imawisi ubuke umcibisholo olandela.\n\nKukhona izinkinobho ezimbili ezibalulekile kumawisi. Inkinobho yesokunxele yiyo osebenzisa kakhulu. Yichofoza kanye ukuze ukhethe into — isibonelo, ukukhetha ifayela noma ukubeka umcibisholo ebhokisini lombhalo. Yichofoza kabili (izinhleko ezimbili ezilandelelana) ukuvula uhlelo noma ifayela. Inkinobho yesokudla ivula imenyu encane enezinketho ezengeziwe. Uzoyisebenzisa ngokuncane kakhulu, kodwa ilusizo lapho ufuna ukukopisha noma ukususa izinto.\n\nPhakathi kwezinkinobho ezimbili kukhona ivili elincane ngokuvamile. Lijikise phambili ukuze ugudluke phezulu ekhasini bese liya emuva ukuze ugudluke ngaphansi — lilusizo kakhulu lapho ufunda umdantatho omude noma iwebhusayithi.",
+            keyPoints: [
+              "Chofoza kanye ngesokunxele ukukhetha; chofoza kabili ukuvula",
+              "Chofoza ngesokudla kukuvezela imenyu yezinketho",
+              "Ivili egudlukayo lihambisa phezulu naphasi ekhasini",
+              "Hambisa imawisi kancane ekuqaleni — isivinini siya nokuqeqeshwa",
+            ],
+          },
+          {
+            title: "Ukusebenzisa ikhibhodi",
+            content: "Ikhibhodi yiyo indlela othayipha ngayo amagama nezinombolo ekhompuyutheni. Izinhlamvu zilungiselelwe ngendlela ebizwa i-QWERTY — eqanjiwe ngezinhlamvu eziyisithupha zomugqa wokuqala. Ekuqaleni izindawo zibukeka zingahlelekile, kodwa ngemva kwamahora ambalwa oqeqeshwa iminwe yakho izoqala ukukhumbula.\n\nIzikhiye ezine ozisebenzisa nsuku zonke: i-Space bar (umugqa omude osansi) ibeka isikhala phakathi kwamagama. I-Enter ikhiye iqinisekisa lokho okuthayiphile noma iya emugqeni omusha. I-Backspace (phezulu kwesokudla, ephawulwa ngemcibisholo obheke kwesokunxele) isusa uhlamvu olungaphambi komcibisholo wakho — yisebenzise ukulungisa amaphutha. I-Shift ikhiye (cindezela ubambe ngenkathi ucindezela uhlamvu) yenza lolo hlamvu libe nomkhulu.\n\nUma ufuna konke kube nezinhlamvu ezinkulu, cindezela i-Caps Lock kanye. Ukukhanya okuncane ekhibhodini kuzovela ukukukhumbula. Cindezela i-Caps Lock futhi ukubuya kokujwayelekile. Lokhu kulungile lapho ubhala isihloko esifana NEGAMA LAKHO EPHEPHA.",
+            keyPoints: [
+              "I-Backspace isusa emuva — ikhiye enkulu yokulungisa amaphutha",
+              "I-Enter iqinisekisa noma iqala umugqa omusha",
+              "I-Shift + uhlamvu yakha uhlamvu olunomkhulu owodwa; i-Caps Lock yenza zonke zibe nezinhlamvu ezinkulu",
+              "Thatha kancane — isivinini sokuthayipha sithuthuka ngokwemvelo ngemasontana",
+            ],
+          },
+          {
+            title: "Ukuvula nokuvala uhlelo",
+            content: "Izinhlelo ziwumathuluzi ekhompuyutheni — njengendlela isando neklono kwawumathuluzi ezandleni zakho. Uvula uhlelo ngokuchofoza kabili isithonjana salo (isithombe) esikrini, noma ngokuchofoza i-Start button bese ufuna igama lalo kuluhlu.\n\nUma uhlelo luvulwa, lugcwalisa ingxenye noma yonke isikrini sakho. Ekona yokuphezulu kwesokudla uzobona izinkinobho ezintathu ezincane: uphawu lomkhwantsho ( – ) lusitha uhlelo, ibhokisi likwenza libe nkulu noma lincane, bese i-X luvala ngokugcwele. Hlala ugcina umsebenzi wakho ngaphambi kokucindezelwa kwe-X, ngenye indlela lokho okuthayiphile kuzalahleka.\n\nUnaba neuhlelo ngaphezu kolulodwa oluvulekile ngesikhathi esisodwa. Uhlelo ngalunye oluvulekile lubonakala njengenkinobho emugqeni osansi esikrini sakho. Chofoza phakathi kwawo ukushintshana. Lokhu kufana nokuba nezipeha ezihlukene ezikhiyekile etafuleni lakho ngesikhathi esisodwa.",
+            keyPoints: [
+              "Chofoza kabili isithonjana ukuvula uhlelo",
+              "Inkinobho ye-X ivala uhlelo — gcina kuqala",
+              "Inkinobho yomkhwantsho isitha uhlelo ngaphandle kokuvala",
+              "Umugqa osansi ubonisa wonke amahlelo avulekile",
+            ],
+          },
+        ],
+      },
+    },
   },
 
   {
@@ -191,6 +248,54 @@ const SEED = [
         ],
       },
     ],
+    translations: {
+      zu: {
+        title: "Ukwenza i-akhawunti yakho yokuqala ye-imeyili",
+        description: "Funda ukuthi i-imeyili iyini nokuthi ibaluleke kanjani emisebenzini nezicelo zokufunda, nokuthi ungabhalisela kanjani i-Gmail bese uthumela umlayezo wakho wokuqala.",
+        lessons: [
+          {
+            title: "Yini i-imeyili nokuthi ibaluleke ngani",
+            content: "I-imeyili ifana nencwadi — ngaphansi kocwaningo lufika ngamasekhondi, awibizi lutho ukuyithumela, futhi ihlala ilondoloziwe njalo. Uma ufaka isicelo sokufunda emsebenzini (learnership) e-SEDA ePort Shepstone, bazokucela ikheli lakho le-imeyili. Uma inkampani ifuna ukukubiza ukuze uze kwingxoxo, bavame ukuthumela i-imeyili kuqala. Ngaphandle kwekheli le-imeyili, amathuba amaningi angakufikeli.\n\nI-imeyili yakha ukwethembeka. Uma uthumela i-imeyili esemthethweni kuthishanhloko wesikole mayelana nephrojekthi, bakuthatha ngobuqiniso ngaphezu kokuthumela umlayezo we-WhatsApp. Amahhovisi kahulumeni, izinkampani ezingakhokheli, amabhange, nababefundisa abaningi baxhumana nge-imeyili. Yincwadi esemthethweni yezwe ledijithali.\n\nI-akhawunti eyodwa ye-imeyili ivula futhi nezinsizakalo eziningi. I-akhawunti ye-Gmail, isibonelo, ikuvumela ukusebenzisa i-Google Drive (ukulondoloza amadokhumenti ku-inthanethi), i-Google Meet (amakholi amavidiyo), ne-YouTube. Cabanga ngayo njengesikhiye esivula iminyango eminingi.",
+            keyPoints: [
+              "I-imeyili imahhala ukuyithumela futhi iyafika ngokushesha",
+              "Izicelo eziningi zemisebenzi nezokufunda zidinga ikheli le-imeyili",
+              "I-imeyili ingobuchwepheshe ngaphezu kwe-WhatsApp kuzo zonke izindlela ezisemthethweni",
+              "I-akhawunti ye-Gmail ivula i-Google Drive, iMeet, nokunye",
+            ],
+          },
+          {
+            title: "Ukubhalisa ku-Gmail",
+            content: "Vula isiphequluli sakho (i-Chrome, isibonelo) uye ku-gmail.com. Chofoza 'Create account.' Uzocela igama lakho lokuqala, isibongo, negama lomsebenzisi. Igama lomsebenzisi liyingxenye engaphambi kwe-@gmail.com — isibonelo, sipho.dlamini noma ntokozo.gwacela. Khetha okuthile okuba negama lakho langempela, ngoba leli kheli lizobonakala kuzo zonke izicelo zemisebenzi othumelayo.\n\nEsalandelayo, khetha iphasiwedi. Yenza ibe nengaphezu kwezinhlamvu eziyisishiyagalombili futhi hlanganisa izinhlamvu nezinombolo — okuthile okuwaziyo wena kuphela. Bhala phansi endaweni ephephile. Uma uyikhohlwa, i-Google ingakusiza ukufinyelela kabusha, kodwa uzodinga inombolo yocingo ukuze wenze kanjalo. Ngalesi sizathu, faka inombolo yocingo yakho lapho i-Google ibuza — lokhu kuqinisekisa i-akhawunti yakho.\n\nUma uqeda, i-Google izokubonisa i-inbox yakho entsha. Izoba ngenalutho ngaphandle kwe-imeyili eyodwa yemukelekile evela ku-Google. Usanda kwenza ubunikazi bakho bedijithali.",
+            keyPoints: [
+              "Iya ku-gmail.com bese uchofoza 'Create account'",
+              "Khetha igama lomsebenzisi eligama lakho langempela — uzolisebenzisa emisebenzini",
+              "Bhala phansi iphasiwedi yakho endaweni ephephile",
+              "Faka inombolo yocingo wakho ukuze ufinyelele kabusha i-akhawunti uma kufanele",
+            ],
+          },
+          {
+            title: "Ukuthumela i-imeyili yakho yokuqala",
+            content: "Chofoza inkinobho ethi 'Compose' (ku-Gmail ikwesokunxele). Ifasitela elincane lizovuleka. Ebhokisini elithi 'To', thayipha ikheli le-imeyili lomuntu ofuna ukuxhumana naye. Ebhokisini elithi 'Subject', bhala isihloko esifushane esibatshela ukuthi i-imeyili imayelana nani — isibonelo: 'Isicelo: Umsizi Wesikhashana – Thabo Shude, KwaXolo.'\n\nEndaleni enkulu emhlophe ngezansi, bhala umlayezo wakho. Qala ngokubingelela: 'Dkt Phehlukwayo ohloniphekile,' noma 'Nkosazane/Nkosi Ohloniphekile,' uma ungalwazi igama. Gcina umlayezo mfushane ucace. Sho ukuthi ungubani, ukuthumelela ini, nokuthi udinga ini. Qeda nge-'Kind regards' negama lakho. Bese uchofoza inkinobho ethi 'Send' — inkinobho eluhlaza noma eluhlaza okwesibhakabhaka esansi.\n\nUqeqeshwa: zama ukuthumela i-imeyili kuwena kuqala. Faka ikheli lakho le-Gmail ebhokisini elithi 'To' ubone ifika ku-inbox yakho. Lena indlela ephephile yokuzijwayeza ngaphambi kokuthumela komxhumani wangempela.",
+            keyPoints: [
+              "Compose → ebhokisini elithi To → Subject → Umlayezo → Send",
+              "Hlala ugcwalisa umugqa wezihloko — izihloko ezikhala azivulwa",
+              "Qala ngokubingelela uphele nge-'Kind regards' + igama lakho eligcwele",
+              "Zithumelele i-imeyili kuqala ukuzijwayeza",
+            ],
+          },
+          {
+            title: "Ukuhlala uphephile ne-imeyili yakho",
+            content: "Manje njengoba unei-akhawunti ye-imeyili, kudingeka uyivikele. Ungabelani nanoma ubani ngephasiwedi yakho — ngisho nomngane. Ikheli lakho le-imeyili lingasetshenziswa ukusetha kabusha amaphasiwedi webhange lakho, i-akhawunti yakho yocingo, nezinsizakalo zakho ezinye ku-inthanethi. Ukulahlekelwa ukufinyelela i-imeyili yakho kungabangela izinkinga ezinkulu.\n\nUzuqala ukuthola i-spam — ama-imeyili angafunwanga azama ukukuthengisela izinto noma ukukukhohlisa. Asuse ngaphandle kokuclofoza nayiziphi izixhumanisi ngaphakathi. Ama-imeyili athile azoziba angavela ebhange lakho noma emnyangweni kahulumeni akucele uchofoza isixhumanisi bese ufaka iphasiwedi yakho. Lokhu kubizwa i-phishing — yinkohliso. Amabhange angempela nawemnyango kahulumeni awehlali ecela iphasiwedi yakho nge-imeyili.\n\nUma usebenzisa ikhompuyutha yabantu esikoleni noma ethaveni, hlala uphuma uma uqeda. Chofoza isifanekiso sakho phezulu kwesokudla kwe-Gmail bese uchofoza 'Sign out.' Ngenye indlela umuntu olandelayo ohlala kulelo khompuyutha angafunda ama-imeyili akho.",
+            keyPoints: [
+              "Ungabelani nanoma ubani ngephasiwedi yakho ye-imeyili",
+              "Ungaclofozi izixhumanisi kumaimeyli avela kwabangaziwa",
+              "Amabhange norhulumeni awehlali ecela iphasiwedi yakho nge-imeyili",
+              "Hlala uphuma kumaiikhompuyutha yabantu",
+            ],
+          },
+        ],
+      },
+    },
   },
 
   {
@@ -429,8 +534,8 @@ const SCHOOL_SEEDS = [
   if (courseCount === 0) {
     const insert = db.prepare(`
       INSERT INTO courses
-        (id, title, description, category, level, duration_minutes, lessons_json, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, title, description, category, level, duration_minutes, lessons_json, created_by, created_at, translations_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertAll = db.transaction((courses) => {
@@ -444,7 +549,8 @@ const SCHOOL_SEEDS = [
           c.duration_minutes,
           JSON.stringify(c.lessons),
           "system",
-          Date.now()
+          Date.now(),
+          c.translations ? JSON.stringify(c.translations) : null
         );
       }
     });
@@ -499,6 +605,8 @@ const SCHOOL_SEEDS = [
   }
 })();
 
+console.log("Tip: If you don't see Zulu translations on the first two courses, delete backend/kwaxolo.db and restart to re-seed.");
+
 // ============================================================================
 // EXPORTS
 // ============================================================================
@@ -546,7 +654,11 @@ export function listCourses({ category } = {}) {
 export function getCourse(id) {
   const row = db.prepare("SELECT * FROM courses WHERE id = ?").get(id);
   if (!row) return null;
-  return { ...row, lessons: JSON.parse(row.lessons_json) };
+  const course = { ...row, lessons: JSON.parse(row.lessons_json) };
+  if (row.translations_json) {
+    course.translations = JSON.parse(row.translations_json);
+  }
+  return course;
 }
 
 export function createCourse(data) {
@@ -554,8 +666,8 @@ export function createCourse(data) {
   const now = Date.now();
   db.prepare(`
     INSERT INTO courses
-      (id, title, description, category, level, duration_minutes, lessons_json, created_by, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, title, description, category, level, duration_minutes, lessons_json, created_by, created_at, translations_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.title,
@@ -565,7 +677,8 @@ export function createCourse(data) {
     data.duration_minutes ?? 0,
     JSON.stringify(data.lessons ?? []),
     data.created_by ?? "teacher",
-    now
+    now,
+    data.translations ? JSON.stringify(data.translations) : null
   );
   return getCourse(id);
 }

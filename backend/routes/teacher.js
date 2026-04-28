@@ -22,6 +22,25 @@ router.get("/classes", (req, res) => {
   res.json(classes);
 });
 
+// GET /api/teacher/classes/:classId/courses
+router.get("/classes/:classId/courses", (req, res) => {
+  const { classId } = req.params;
+  const cls = db.prepare("SELECT * FROM classes WHERE id = ? AND teacher_id = ?").get(classId, req.user.id);
+  if (!cls) return res.status(404).json({ error: "Class not found." });
+
+  const courses = db
+    .prepare(
+      `SELECT c.id, c.title, c.description, c.category, c.level, c.duration_minutes, cc.published_at
+       FROM class_courses cc
+       JOIN courses c ON c.id = cc.course_id
+       WHERE cc.class_id = ?
+       ORDER BY cc.published_at DESC`
+    )
+    .all(classId);
+
+  res.json(courses);
+});
+
 // POST /api/teacher/classes { name, schoolId }
 router.post("/classes", (req, res) => {
   const { name, schoolId } = req.body;
