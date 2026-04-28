@@ -5,3 +5,6 @@ node_modules/
 dist/
 *.log
 .vite/
+backend/kwaxolo.db
+backend/kwaxolo.db-shm
+backend/kwaxolo.db-wal
