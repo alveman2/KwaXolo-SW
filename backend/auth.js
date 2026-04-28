@@ -44,13 +44,16 @@ export function requireRole(...roles) {
 
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
-  const { email, password, displayName } = req.body;
+  const { email, password, displayName, role } = req.body;
 
   if (!email || !password || !displayName) {
     return res.status(400).json({ error: "email, password, and displayName are required." });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: "Password must be at least 6 characters." });
+  }
+  if (role === "admin") {
+    return res.status(400).json({ error: "Admin role cannot be created via registration." });
   }
 
   const existing = getUserByEmail(email);

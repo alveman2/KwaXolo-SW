@@ -16,6 +16,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const user = await login(email, password);
+      if (user.role === "admin") {
+        setError("Admin accounts are not supported in this application.");
+        return;
+      }
       navigateByRole(user.role, navigate);
     } catch (err) {
       setError(err.message);
@@ -112,14 +116,9 @@ export default function LoginPage() {
 }
 
 export function navigateByRole(role, navigate) {
-  switch (role) {
-    case "admin":
-      navigate("/admin");
-      break;
-    case "teacher":
-      navigate("/teacher");
-      break;
-    default:
-      navigate("/app");
+  if (role === "teacher") {
+    navigate("/teacher");
+  } else {
+    navigate("/app");
   }
 }

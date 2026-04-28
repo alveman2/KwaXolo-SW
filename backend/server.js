@@ -6,7 +6,6 @@ import { db, listCourses, getCourse, createCourse } from "./db.js";
 import authRouter from "./auth.js";
 import studentRouter from "./routes/student.js";
 import teacherRouter from "./routes/teacher.js";
-import adminRouter from "./routes/admin.js";
 
 dotenv.config();
 
@@ -20,7 +19,6 @@ app.use("/api/auth", authRouter);
 // Role-based routes
 app.use("/api", studentRouter);
 app.use("/api/teacher", teacherRouter);
-app.use("/api/admin", adminRouter);
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })

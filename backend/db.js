@@ -468,14 +468,6 @@ const SCHOOL_SEEDS = [
     console.log(`Seeded ${SCHOOL_SEEDS.length} schools`);
   }
 
-  const userCount = db.prepare("SELECT COUNT(*) as n FROM users").get().n;
-  if (userCount === 0) {
-    const hash = bcrypt.hashSync("admin123", 10);
-    db.prepare(
-      "INSERT INTO users (id, email, password_hash, display_name, role, school_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(randomUUID(), "admin@kwaxolo.org", hash, "Admin", "admin", null, Date.now());
-    console.log("Seeded admin user: admin@kwaxolo.org / admin123");
-  }
 })();
 
 // ============================================================================

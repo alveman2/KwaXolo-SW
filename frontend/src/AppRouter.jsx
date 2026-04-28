@@ -8,12 +8,6 @@ import FeedPage from "./pages/student/FeedPage";
 import ProgressPage from "./pages/student/ProgressPage";
 import JoinPage from "./pages/student/JoinPage";
 import StudentCourseView from "./pages/student/StudentCourseView";
-import AdminLayout from "./pages/admin/AdminLayout";
-import DashboardPage from "./pages/admin/DashboardPage";
-import SchoolsPage from "./pages/admin/SchoolsPage";
-import UsersPage from "./pages/admin/UsersPage";
-import ClassesPage from "./pages/admin/ClassesPage";
-import CoursesPage from "./pages/admin/CoursesPage";
 
 function RequireAuth({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -46,11 +40,8 @@ function GuestOnly({ children }) {
   }
 
   if (user) {
-    switch (user.role) {
-      case "admin": return <Navigate to="/admin" replace />;
-      case "teacher": return <Navigate to="/teacher" replace />;
-      default: return <Navigate to="/app" replace />;
-    }
+    if (user.role === "teacher") return <Navigate to="/teacher" replace />;
+    return <Navigate to="/app" replace />;
   }
 
   return children;
@@ -82,19 +73,6 @@ export default function AppRouter() {
           <App />
         </RequireAuth>
       } />
-
-      {/* Admin routes */}
-      <Route path="/admin" element={
-        <RequireAuth allowedRoles={["admin"]}>
-          <AdminLayout />
-        </RequireAuth>
-      }>
-        <Route index element={<DashboardPage />} />
-        <Route path="schools" element={<SchoolsPage />} />
-        <Route path="users" element={<UsersPage />} />
-        <Route path="classes" element={<ClassesPage />} />
-        <Route path="courses" element={<CoursesPage />} />
-      </Route>
 
       {/* Catch-all */}
       <Route path="*" element={<Navigate to="/" replace />} />
