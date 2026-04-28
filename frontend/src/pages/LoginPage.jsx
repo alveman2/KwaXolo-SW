@@ -104,7 +104,6 @@ export default function LoginPage() {
                 {[
                   { label: "Student", email: "student@kwaxolo.org", pw: "student123", color: "bg-kwaxolo-blue" },
                   { label: "Teacher", email: "teacher@kwaxolo.org", pw: "teacher123", color: "bg-kwaxolo-gold" },
-                  { label: "Admin", email: "admin@kwaxolo.org", pw: "admin123", color: "bg-kwaxolo-red" },
                 ].map((u) => (
                   <button
                     key={u.label}
