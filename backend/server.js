@@ -519,3 +519,11 @@ app.listen(PORT, "0.0.0.0", () => {
     console.warn("⚠️  No OPENAI_API_KEY set in .env — requests will fail.");
   }
 });
+
+import path from "path";
+
+app.use(express.static(path.join(process.cwd(), "../frontend/dist")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(process.cwd(), "../frontend/dist/index.html"));
+});
