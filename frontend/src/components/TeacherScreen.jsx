@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { generateCourse, createCourse } from "../lib/api.js";
+import { useStrings } from "../lib/i18n.jsx";
 
-const GRADE_OPTIONS = [
-  { value: "", label: "Mixed / Any grade" },
+const GRADE_OPTIONS_VALUES = [
+  { value: "", key: "mixedGrade" },
   { value: "Grade 8", label: "Grade 8" },
   { value: "Grade 9", label: "Grade 9" },
   { value: "Grade 10", label: "Grade 10" },
@@ -40,6 +41,8 @@ export default function TeacherScreen({ onCourseSaved }) {
   const [preview, setPreview] = useState(null); // generated course object
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+
+  const t = useStrings();
 
   // ── Step A: Generate ───────────────────────────────────────────────────────
 
@@ -83,11 +86,10 @@ export default function TeacherScreen({ onCourseSaved }) {
             <span>👩‍🏫</span> Teacher mode
           </div>
           <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-2">
-            Generate a new course
+            {t.teacher.heading}
           </h2>
           <p className="text-stone-600">
-            Describe what your students need to learn. The more specific you
-            are, the better the course will be.
+            {t.teacher.description}
           </p>
         </div>
 
@@ -108,7 +110,7 @@ export default function TeacherScreen({ onCourseSaved }) {
 
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-2">
-              Grade level{" "}
+              {t.teacher.gradeLevel}{" "}
               <span className="font-normal text-stone-400">(optional)</span>
             </label>
             <select
@@ -117,9 +119,9 @@ export default function TeacherScreen({ onCourseSaved }) {
               disabled={generating}
               className="bg-white border border-stone-300 rounded-xl px-4 py-2.5 text-stone-900 focus:outline-none focus:ring-2 focus:ring-kwaxolo-green focus:border-transparent"
             >
-              {GRADE_OPTIONS.map((o) => (
+              {GRADE_OPTIONS_VALUES.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label}
+                  {o.key ? t.teacher.mixedGrade : o.label}
                 </option>
               ))}
             </select>
@@ -159,10 +161,10 @@ export default function TeacherScreen({ onCourseSaved }) {
           >
             {generating ? (
               <>
-                <Spinner /> Generating course...
+                <Spinner /> {t.teacher.generating}
               </>
             ) : (
-              <>Generate course →</>
+              <>{t.teacher.generate} →</>
             )}
           </button>
           {generating && (
@@ -232,10 +234,10 @@ export default function TeacherScreen({ onCourseSaved }) {
         >
           {saving ? (
             <>
-              <Spinner /> Saving...
+              <Spinner /> {t.teacher.saving}
             </>
           ) : (
-            <>Save to course library →</>
+            <>{t.teacher.save} →</>
           )}
         </button>
 
@@ -246,10 +248,10 @@ export default function TeacherScreen({ onCourseSaved }) {
         >
           {generating ? (
             <>
-              <Spinner className="text-stone-400" /> Regenerating...
+              <Spinner className="text-stone-400" /> {t.teacher.generating}
             </>
           ) : (
-            <>Regenerate</>
+            <>{t.teacher.regenerate}</>
           )}
         </button>
 
@@ -262,7 +264,7 @@ export default function TeacherScreen({ onCourseSaved }) {
           disabled={saving}
           className="flex-1 sm:flex-none bg-white hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed text-stone-500 font-medium px-6 py-3 rounded-xl border border-stone-200 transition"
         >
-          Edit input
+          {t.teacher.editInput}
         </button>
       </div>
     </div>

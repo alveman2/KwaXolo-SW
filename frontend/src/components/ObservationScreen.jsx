@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { findOpportunity } from "../lib/api.js";
+import { useStrings } from "../lib/i18n.jsx";
 
 const PROMPTS = [
   "People in my village travel 3 hours to Port Shepstone to repair their phones.",
@@ -32,6 +33,8 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [followUpCount, setFollowUpCount] = useState(0);
   const [originalObservation, setOriginalObservation] = useState("");
+
+  const t = useStrings();
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -115,28 +118,27 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
           onClick={onBack}
           className="text-sm text-stone-500 hover:text-stone-800 mb-6"
         >
-          ← Back
+          {t.observation.back}
         </button>
 
         <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-3">
-          What have you noticed?
+          {t.observation.heading}
         </h2>
         <p className="text-stone-600 mb-6">
-          Describe one specific thing — a problem, a frustration, or something
-          missing in your community. Be concrete.
+          {t.observation.description}
         </p>
 
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="For example: 'When my friend's phone screen broke, he had to take the bus to Port Shepstone and stay overnight to get it fixed.'"
+          placeholder={t.observation.placeholder}
           rows={5}
           className="w-full bg-white border border-stone-300 rounded-xl p-4 text-stone-900 focus:outline-none focus:ring-2 focus:ring-kwaxolo-green focus:border-transparent resize-none"
           disabled={loading}
         />
 
         <div className="mt-3 mb-6">
-          <div className="text-xs text-stone-500 mb-2">Or try one of these:</div>
+          <div className="text-xs text-stone-500 mb-2">{t.observation.orTry}</div>
           <div className="flex flex-wrap gap-2">
             {PROMPTS.map((p, i) => (
               <button
@@ -160,10 +162,10 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
         >
           {loading ? (
             <>
-              <Spinner /> Finding opportunities...
+              <Spinner /> {t.observation.finding}
             </>
           ) : (
-            <>Find the opportunity →</>
+            <>{t.observation.findButton}</>
           )}
         </button>
       </div>
@@ -178,7 +180,7 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
         onClick={onBack}
         className="text-sm text-stone-500 hover:text-stone-800 mb-6"
       >
-        ← Back
+        {t.observation.back}
       </button>
 
       {/* Committed conversation so far */}

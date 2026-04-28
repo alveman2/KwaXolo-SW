@@ -1,8 +1,17 @@
-export default function PhoneMockup({ course, lesson }) {
+import { useStrings } from "../lib/i18n.jsx";
+
+export default function PhoneMockup({ course, lesson, rawLesson }) {
+  const t = useStrings();
+
   if (!course || !lesson) return null;
 
+  // Use rawLesson for index lookup if provided (so progress dots stay correct
+  // when displaying a translated lesson object that differs by reference).
   const lessons = course.lessons ?? [];
-  const lessonIndex = lessons.findIndex((l) => l === lesson);
+  const indexLesson = rawLesson ?? lesson;
+  const rawLessons = course.lessons ?? [];
+  const lessonIndex = rawLessons.findIndex((l) => l === indexLesson);
+  const resolvedIndex = lessonIndex >= 0 ? lessonIndex : rawLessons.indexOf(lesson);
 
   // Truncate content to fit the phone screen
   const paragraphs = lesson.content.split("\n\n");
@@ -131,9 +140,9 @@ export default function PhoneMockup({ course, lesson }) {
                     borderRadius: "50%",
                     flexShrink: 0,
                     background:
-                      i === lessonIndex
+                      i === resolvedIndex
                         ? "#16a34a"
-                        : i < lessonIndex
+                        : i < resolvedIndex
                         ? "#bbf7d0"
                         : "#e7e5e4",
                   }}
@@ -171,7 +180,7 @@ export default function PhoneMockup({ course, lesson }) {
               className="bg-kwaxolo-green text-white text-center font-semibold rounded-lg"
               style={{ fontSize: 11, padding: "7px 0" }}
             >
-              Next lesson →
+              {t.courseDetail.nextLesson}
             </div>
           </div>
 
@@ -180,16 +189,16 @@ export default function PhoneMockup({ course, lesson }) {
             className="flex items-center justify-around border-t border-stone-200 bg-white flex-shrink-0"
             style={{ padding: "6px 0 10px" }}
           >
-            <NavIcon label="Courses" active />
-            <NavIcon label="Opportunity" />
-            <NavIcon label="Profile" />
+            <NavIcon label={t.phone.coursesNav} active />
+            <NavIcon label={t.phone.opportunityNav} />
+            <NavIcon label={t.phone.profileNav} />
           </div>
         </div>
       </div>
 
       {/* Caption */}
       <p className="mt-4 text-xs text-stone-400 text-center">
-        Coming soon to iOS and Android
+        {t.courseDetail.comingSoonMobile}
       </p>
     </div>
   );

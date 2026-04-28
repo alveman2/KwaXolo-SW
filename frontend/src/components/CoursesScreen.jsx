@@ -1,19 +1,25 @@
 import { useState, useEffect } from "react";
 import { listCourses } from "../lib/api.js";
-
-const TABS = [
-  { label: "Phase 1: Getting started", category: "phase1" },
-  { label: "Phase 2: Productivity", category: "phase2" },
-  { label: "Business basics", category: "business" },
-];
-
-const LEVEL_LABEL = { beginner: "Beginner", intermediate: "Intermediate" };
+import { useStrings } from "../lib/i18n.jsx";
 
 export default function CoursesScreen({ onSelectCourse }) {
   const [activeCategory, setActiveCategory] = useState("phase1");
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const t = useStrings();
+
+  const TABS = [
+    { label: t.courses.tabs.phase1, category: "phase1" },
+    { label: t.courses.tabs.phase2, category: "phase2" },
+    { label: t.courses.tabs.business, category: "business" },
+  ];
+
+  const LEVEL_LABEL = {
+    beginner: t.courses.beginner,
+    intermediate: t.courses.intermediate,
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -27,7 +33,7 @@ export default function CoursesScreen({ onSelectCourse }) {
   return (
     <div className="py-8">
       <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-1">
-        Courses
+        {t.nav.courses}
       </h2>
       <p className="text-stone-600 mb-6">
         Free lessons to build practical digital and business skills.
@@ -70,7 +76,7 @@ export default function CoursesScreen({ onSelectCourse }) {
 
       {!loading && !error && courses.length === 0 && (
         <div className="text-center py-16 text-stone-500">
-          No courses in this category yet.
+          {t.courses.noCourses}
         </div>
       )}
 
@@ -80,6 +86,8 @@ export default function CoursesScreen({ onSelectCourse }) {
             <CourseCard
               key={course.id}
               course={course}
+              levelLabel={LEVEL_LABEL}
+              minutesLabel={t.courses.minutes}
               onClick={() => onSelectCourse(course.id)}
             />
           ))}
@@ -89,7 +97,7 @@ export default function CoursesScreen({ onSelectCourse }) {
   );
 }
 
-function CourseCard({ course, onClick }) {
+function CourseCard({ course, levelLabel, minutesLabel, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -100,7 +108,7 @@ function CourseCard({ course, onClick }) {
           {course.title}
         </h3>
         <span className="flex-shrink-0 text-xs bg-stone-100 text-stone-600 px-2.5 py-1 rounded-full font-medium">
-          {LEVEL_LABEL[course.level] ?? course.level}
+          {levelLabel[course.level] ?? course.level}
         </span>
       </div>
       <p className="text-stone-600 text-sm leading-relaxed mb-4 line-clamp-2">
@@ -109,7 +117,7 @@ function CourseCard({ course, onClick }) {
       <div className="flex items-center gap-3 text-xs text-stone-500">
         <span className="flex items-center gap-1">
           <ClockIcon />
-          {course.duration_minutes} min
+          {course.duration_minutes} {minutesLabel}
         </span>
         <span className="text-stone-300">·</span>
         <span className="text-kwaxolo-green font-medium">Start →</span>

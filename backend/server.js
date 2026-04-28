@@ -434,6 +434,75 @@ app.post("/api/teacher/generate-course", async (req, res) => {
 });
 
 // ============================================================================
+// ROUTE: /api/translate
+// Translates a string or object of strings to the target language.
+// Results are cached in-process to avoid repeat API calls.
+// ============================================================================
+const translationCache = new Map();
+
+const TRANSLATION_SYSTEM_PROMPT = `You are a professional translator from English to isiZulu (Zulu) as spoken in KwaZulu-Natal, South Africa. Translate the user's text accurately and naturally for a Grade 8–12 audience. Preserve proper nouns exactly: KwaXolo, Port Shepstone, Margate, Southbroom, Port Edward, Durban, Msenti Hub, SASSA, SEDA, Microsoft, Khan Academy, KwaXolo Caves Adventures, WhatsApp, Gmail. Preserve all numbers and currency (R amounts) exactly. Return ONLY the translated text — no explanation, no quotes, no markdown.`;
+
+const TRANSLATION_SYSTEM_PROMPT_TO_EN = `You are a professional translator from isiZulu (Zulu) to English. Translate the user's text accurately and naturally for a Grade 8–12 audience. Preserve proper nouns exactly: KwaXolo, Port Shepstone, Margate, Southbroom, Port Edward, Durban, Msenti Hub, SASSA, SEDA, Microsoft, Khan Academy, KwaXolo Caves Adventures, WhatsApp, Gmail. Preserve all numbers and currency (R amounts) exactly. Return ONLY the translated text — no explanation, no quotes, no markdown.`;
+
+app.post("/api/translate", async (req, res) => {
+  const { text, targetLang } = req.body;
+
+  if (!text || !targetLang) {
+    return res.status(400).json({ error: "Missing 'text' or 'targetLang'." });
+  }
+  if (targetLang !== "en" && targetLang !== "zu") {
+    return res.status(400).json({ error: "targetLang must be 'en' or 'zu'." });
+  }
+
+  const cacheKey = targetLang + ":" + JSON.stringify(text);
+  if (translationCache.has(cacheKey)) {
+    return res.json({ translated: translationCache.get(cacheKey) });
+  }
+
+  const systemPrompt =
+    targetLang === "zu" ? TRANSLATION_SYSTEM_PROMPT : TRANSLATION_SYSTEM_PROMPT_TO_EN;
+
+  try {
+    if (typeof text === "string") {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: text },
+        ],
+        temperature: 0.3,
+      });
+      const translated = completion.choices[0].message.content.trim();
+      translationCache.set(cacheKey, translated);
+      return res.json({ translated });
+    }
+
+    if (typeof text === "object" && text !== null) {
+      const objectSystemPrompt =
+        systemPrompt +
+        " The user will send a JSON object. Translate all string leaf values. Return ONLY valid JSON of the exact same shape — no explanation, no markdown.";
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: objectSystemPrompt },
+          { role: "user", content: JSON.stringify(text) },
+        ],
+        temperature: 0.3,
+      });
+      const translated = JSON.parse(completion.choices[0].message.content);
+      translationCache.set(cacheKey, translated);
+      return res.json({ translated });
+    }
+
+    return res.status(400).json({ error: "text must be a string or object." });
+  } catch (err) {
+    console.error("Translation error:", err);
+    res.status(500).json({ error: "Translation failed.", detail: err.message });
+  }
+});
+
+// ============================================================================
 // ROUTE: /api/health
 // ============================================================================
 app.get("/api/health", (req, res) => {

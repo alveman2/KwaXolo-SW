@@ -1,34 +1,36 @@
+import { useStrings } from "../lib/i18n.jsx";
+
 export default function LandingScreen({ onStart }) {
+  const t = useStrings();
+
   return (
     <div className="py-12">
       <div className="text-center mb-12">
         <h1 className="text-4xl sm:text-5xl font-bold text-stone-900 mb-4 leading-tight">
-          See the opportunity
+          {t.landing.headline1}
           <br />
-          <span className="text-kwaxolo-green">around you.</span>
+          <span className="text-kwaxolo-green">{t.landing.headline2}</span>
         </h1>
         <p className="text-lg text-stone-600 max-w-xl mx-auto">
-          Tell us something you have noticed in your community — a problem, a
-          frustration, something missing. We will help you see if it is also a
-          business opportunity.
+          {t.landing.description}
         </p>
       </div>
 
       <div className="grid sm:grid-cols-3 gap-4 mb-12">
         <ExampleCard
           icon="🚌"
-          title="A transport problem"
-          example="People travel hours to repair phones."
+          title={t.landing.exampleTransport}
+          example={t.landing.exampleTransportText}
         />
         <ExampleCard
           icon="🍞"
-          title="A scaling question"
-          example="My bakery is full every day. What now?"
+          title={t.landing.exampleScaling}
+          example={t.landing.exampleScalingText}
         />
         <ExampleCard
           icon="📚"
-          title="A gap in services"
-          example="Students have no place to print homework."
+          title={t.landing.exampleGap}
+          example={t.landing.exampleGapText}
         />
       </div>
 
@@ -37,9 +39,9 @@ export default function LandingScreen({ onStart }) {
           onClick={onStart}
           className="bg-kwaxolo-green hover:bg-emerald-700 text-white text-lg font-semibold px-8 py-4 rounded-xl shadow-sm transition"
         >
-          Start →
+          {t.landing.startButton}
         </button>
-        <p className="text-xs text-stone-500 mt-3">Takes about 2 minutes.</p>
+        <p className="text-xs text-stone-500 mt-3">{t.landing.takesAbout}</p>
       </div>
     </div>
   );

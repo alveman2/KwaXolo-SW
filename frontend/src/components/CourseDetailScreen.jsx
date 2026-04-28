@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getCourse } from "../lib/api.js";
+import { getCourse, translate } from "../lib/api.js";
+import { useLanguage, useStrings } from "../lib/i18n.jsx";
 import PhoneMockup from "./PhoneMockup.jsx";
 
 export default function CourseDetailScreen({ courseId, onBack }) {
@@ -8,15 +9,67 @@ export default function CourseDetailScreen({ courseId, onBack }) {
   const [error, setError] = useState(null);
   const [lessonIndex, setLessonIndex] = useState(0);
 
+  const [translatedCourse, setTranslatedCourse] = useState(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState(null);
+
+  const { lang } = useLanguage();
+  const t = useStrings();
+
   useEffect(() => {
     setLoading(true);
     setError(null);
     setLessonIndex(0);
+    setTranslatedCourse(null);
     getCourse(courseId)
       .then(setCourse)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [courseId]);
+
+  useEffect(() => {
+    if (!course) return;
+
+    if (lang === "en") {
+      setTranslatedCourse(null);
+      setTranslateError(null);
+      return;
+    }
+
+    // lang === "zu": translate course content
+    setTranslating(true);
+    setTranslateError(null);
+
+    const translationInput = {
+      title: course.title,
+      description: course.description,
+      lessons: (course.lessons ?? []).map((l) => ({
+        title: l.title,
+        content: l.content,
+        keyPoints: l.keyPoints ?? [],
+      })),
+    };
+
+    translate(translationInput, "zu")
+      .then((result) => {
+        setTranslatedCourse({
+          ...course,
+          title: result.title ?? course.title,
+          description: result.description ?? course.description,
+          lessons: (course.lessons ?? []).map((l, i) => ({
+            ...l,
+            title: result.lessons?.[i]?.title ?? l.title,
+            content: result.lessons?.[i]?.content ?? l.content,
+            keyPoints: result.lessons?.[i]?.keyPoints ?? l.keyPoints,
+          })),
+        });
+      })
+      .catch(() => {
+        setTranslateError("Translation failed — showing English.");
+        setTranslatedCourse(null);
+      })
+      .finally(() => setTranslating(false));
+  }, [course, lang]);
 
   if (loading) {
     return (
@@ -32,7 +85,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
     return (
       <div className="py-8">
         <button onClick={onBack} className="text-sm text-stone-500 hover:text-stone-800 mb-6">
-          ← Back to courses
+          {t.courseDetail.back}
         </button>
         <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
           Could not load this course: {error ?? "Not found"}
@@ -41,10 +94,14 @@ export default function CourseDetailScreen({ courseId, onBack }) {
     );
   }
 
-  const lessons = course.lessons ?? [];
+  const displayCourse = translatedCourse ?? course;
+  const lessons = displayCourse.lessons ?? [];
   const lesson = lessons[lessonIndex];
   const isFirst = lessonIndex === 0;
   const isLast = lessonIndex === lessons.length - 1;
+
+  // For PhoneMockup we always pass the raw lesson for index lookup, then the display lesson
+  const rawLessons = course.lessons ?? [];
 
   return (
     <div className="py-8">
@@ -53,18 +110,36 @@ export default function CourseDetailScreen({ courseId, onBack }) {
         onClick={onBack}
         className="text-sm text-stone-500 hover:text-stone-800 mb-6"
       >
-        ← Back to courses
+        {t.courseDetail.back}
       </button>
+
+      {/* Translating indicator */}
+      {translating && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-stone-500">
+          <Spinner />
+          {t.courseDetail.translating}
+        </div>
+      )}
+
+      {/* Translation error */}
+      {translateError && (
+        <div className="mb-4 text-xs text-stone-400">{translateError}</div>
+      )}
 
       {/* Course header */}
       <div className="mb-6">
         <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-1">
-          {course.title}
+          {displayCourse.title}
         </h2>
+        {translatedCourse && !translating && (
+          <span className="inline-block text-xs text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full mb-1">
+            {t.courseDetail.aiTranslated}
+          </span>
+        )}
         <div className="flex items-center gap-3 text-xs text-stone-500">
-          <span>{course.duration_minutes} min</span>
+          <span>{course.duration_minutes} {t.courses.minutes}</span>
           <span className="text-stone-300">·</span>
-          <span>{lessons.length} lessons</span>
+          <span>{lessons.length} {t.courses.lessonsCount}</span>
           <span className="text-stone-300">·</span>
           <span className="capitalize">{course.level}</span>
         </div>
@@ -74,7 +149,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
       <div className="mb-6">
         <div className="flex justify-between text-xs text-stone-500 mb-1.5">
           <span>
-            Lesson {lessonIndex + 1} of {lessons.length}
+            {t.courseDetail.lesson} {lessonIndex + 1} {t.courseDetail.of} {lessons.length}
           </span>
           <span>{Math.round(((lessonIndex + 1) / lessons.length) * 100)}%</span>
         </div>
@@ -127,7 +202,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
               {lesson.keyPoints && lesson.keyPoints.length > 0 && (
                 <div className="bg-kwaxolo-green/5 border border-kwaxolo-green/20 rounded-xl p-4">
                   <div className="text-xs uppercase tracking-wide text-kwaxolo-green font-bold mb-3">
-                    Key points
+                    {t.courseDetail.keyPoints}
                   </div>
                   <ul className="space-y-2">
                     {lesson.keyPoints.map((point, i) => (
@@ -151,7 +226,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
               disabled={isFirst}
               className="flex-1 sm:flex-none bg-white hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed text-stone-700 font-medium px-6 py-3 rounded-xl border border-stone-300 transition"
             >
-              ← Previous
+              {t.courseDetail.previousLesson}
             </button>
 
             {isLast ? (
@@ -159,14 +234,14 @@ export default function CourseDetailScreen({ courseId, onBack }) {
                 onClick={onBack}
                 className="flex-1 sm:flex-none bg-kwaxolo-green hover:bg-emerald-700 text-white font-semibold px-8 py-3 rounded-xl transition"
               >
-                Done — back to courses
+                {t.courseDetail.finished}
               </button>
             ) : (
               <button
                 onClick={() => setLessonIndex((i) => i + 1)}
                 className="flex-1 sm:flex-none bg-kwaxolo-green hover:bg-emerald-700 text-white font-semibold px-8 py-3 rounded-xl transition"
               >
-                Next lesson →
+                {t.courseDetail.nextLesson}
               </button>
             )}
           </div>
@@ -174,9 +249,34 @@ export default function CourseDetailScreen({ courseId, onBack }) {
 
         {/* Right column: phone mockup — desktop only */}
         <div className="hidden lg:block sticky top-8 flex-shrink-0">
-          <PhoneMockup course={course} lesson={lesson} />
+          <PhoneMockup
+            course={displayCourse}
+            lesson={lesson}
+            rawLesson={rawLessons[lessonIndex]}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      />
+    </svg>
   );
 }
