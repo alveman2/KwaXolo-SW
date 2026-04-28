@@ -6,6 +6,8 @@ import { db, listCourses, getCourse, createCourse } from "./db.js";
 import authRouter from "./auth.js";
 import studentRouter from "./routes/student.js";
 import teacherRouter from "./routes/teacher.js";
+import path from "path";
+
 
 dotenv.config();
 
@@ -512,6 +514,13 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, hasKey: !!process.env.OPENAI_API_KEY });
 });
 
+
+app.use(express.static(path.join(process.cwd(), "../frontend/dist")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(process.cwd(), "../frontend/dist/index.html"));
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`KwaXolo backend running on http://localhost:${PORT}`);
@@ -520,10 +529,3 @@ app.listen(PORT, "0.0.0.0", () => {
   }
 });
 
-import path from "path";
-
-app.use(express.static(path.join(process.cwd(), "../frontend/dist")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(process.cwd(), "../frontend/dist/index.html"));
-});
