@@ -98,7 +98,39 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <p className="mt-6 text-center text-sm text-stone-500">
+            <div className="mt-6 pt-5 border-t border-stone-200">
+              <p className="text-xs text-stone-400 text-center mb-3">Quick login</p>
+              <div className="flex gap-2">
+                {[
+                  { label: "Student", email: "student@kwaxolo.org", pw: "student123", color: "bg-kwaxolo-blue" },
+                  { label: "Teacher", email: "teacher@kwaxolo.org", pw: "teacher123", color: "bg-kwaxolo-gold" },
+                  { label: "Admin", email: "admin@kwaxolo.org", pw: "admin123", color: "bg-kwaxolo-red" },
+                ].map((u) => (
+                  <button
+                    key={u.label}
+                    type="button"
+                    disabled={loading}
+                    onClick={async () => {
+                      setError("");
+                      setLoading(true);
+                      try {
+                        const user = await login(u.email, u.pw);
+                        navigateByRole(user.role, navigate);
+                      } catch (err) {
+                        setError(err.message);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    className={`flex-1 py-2 ${u.color} text-white text-xs font-medium rounded-lg hover:opacity-90 transition disabled:opacity-50`}
+                  >
+                    {u.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="mt-4 text-center text-sm text-stone-500">
               Don't have an account?{" "}
               <Link to="/register" className="text-kwaxolo-green font-medium hover:underline">
                 Register

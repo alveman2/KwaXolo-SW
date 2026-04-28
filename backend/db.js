@@ -468,6 +468,35 @@ const SCHOOL_SEEDS = [
     console.log(`Seeded ${SCHOOL_SEEDS.length} schools`);
   }
 
+
+  const userCount = db.prepare("SELECT COUNT(*) as n FROM users").get().n;
+  if (userCount === 0) {
+    const hash = bcrypt.hashSync("admin123", 10);
+    db.prepare(
+      "INSERT INTO users (id, email, password_hash, display_name, role, school_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(randomUUID(), "admin@kwaxolo.org", hash, "Admin", "admin", null, Date.now());
+    console.log("Seeded admin user: admin@kwaxolo.org / admin123");
+  }
+
+  const existingTeacher = db.prepare("SELECT id FROM users WHERE email = ?").get("teacher@kwaxolo.org");
+  if (!existingTeacher) {
+    const firstSchool = db.prepare("SELECT id FROM schools ORDER BY created_at ASC LIMIT 1").get();
+    const teacherHash = bcrypt.hashSync("teacher123", 10);
+    db.prepare(
+      "INSERT INTO users (id, email, password_hash, display_name, role, school_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(randomUUID(), "teacher@kwaxolo.org", teacherHash, "Teacher", "teacher", firstSchool?.id ?? null, Date.now());
+    console.log("Seeded teacher user: teacher@kwaxolo.org / teacher123");
+  }
+
+  const existingStudent = db.prepare("SELECT id FROM users WHERE email = ?").get("student@kwaxolo.org");
+  if (!existingStudent) {
+    const firstSchool = db.prepare("SELECT id FROM schools ORDER BY created_at ASC LIMIT 1").get();
+    const studentHash = bcrypt.hashSync("student123", 10);
+    db.prepare(
+      "INSERT INTO users (id, email, password_hash, display_name, role, school_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(randomUUID(), "student@kwaxolo.org", studentHash, "Student", "student", firstSchool?.id ?? null, Date.now());
+    console.log("Seeded student user: student@kwaxolo.org / student123");
+  }
 })();
 
 // ============================================================================
