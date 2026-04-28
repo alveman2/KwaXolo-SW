@@ -513,7 +513,7 @@ app.get("/api/health", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`KwaXolo backend running on http://localhost:${PORT}`);
   if (!process.env.OPENAI_API_KEY) {
     console.warn("⚠️  No OPENAI_API_KEY set in .env — requests will fail.");
