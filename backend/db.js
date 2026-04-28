@@ -2,11 +2,13 @@ import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import bcrypt from "bcryptjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = new Database(join(__dirname, "kwaxolo.db"));
 
 db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS courses (
@@ -19,6 +21,69 @@ db.exec(`
     lessons_json     TEXT    NOT NULL,
     created_by       TEXT    NOT NULL,
     created_at       INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schools (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    code       TEXT UNIQUE NOT NULL,
+    created_at INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    email         TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name  TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'student',
+    school_id     TEXT REFERENCES schools(id),
+    created_at    INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS classes (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    join_code  TEXT UNIQUE NOT NULL,
+    school_id  TEXT REFERENCES schools(id),
+    teacher_id TEXT REFERENCES users(id),
+    created_at INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS class_members (
+    id        TEXT PRIMARY KEY,
+    class_id  TEXT REFERENCES classes(id),
+    user_id   TEXT REFERENCES users(id),
+    joined_at INTEGER NOT NULL,
+    UNIQUE(class_id, user_id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS class_courses (
+    id           TEXT PRIMARY KEY,
+    class_id     TEXT REFERENCES classes(id),
+    course_id    TEXT REFERENCES courses(id),
+    published_at INTEGER NOT NULL,
+    UNIQUE(class_id, course_id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS progress (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT REFERENCES users(id),
+    course_id    TEXT REFERENCES courses(id),
+    lesson_index INTEGER NOT NULL,
+    completed_at INTEGER NOT NULL,
+    UNIQUE(user_id, course_id, lesson_index)
   )
 `);
 
@@ -343,40 +408,108 @@ const SEED = [
   },
 ];
 
+// ============================================================================
+// SEED: Schools
+// ============================================================================
+const SCHOOL_SEEDS = [
+  "KwaXolo Secondary",
+  "Margate High",
+  "Port Shepstone High",
+  "Gamalakhe High",
+  "Izingolweni High",
+  "Southport Secondary",
+  "Umzumbe High",
+  "Gcekeni Secondary",
+  "Weza High",
+];
+
 // Run seed on first launch
 (function seedIfEmpty() {
-  const count = db.prepare("SELECT COUNT(*) as n FROM courses").get().n;
-  if (count > 0) return;
+  const courseCount = db.prepare("SELECT COUNT(*) as n FROM courses").get().n;
+  if (courseCount === 0) {
+    const insert = db.prepare(`
+      INSERT INTO courses
+        (id, title, description, category, level, duration_minutes, lessons_json, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
 
-  const insert = db.prepare(`
-    INSERT INTO courses
-      (id, title, description, category, level, duration_minutes, lessons_json, created_by, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+    const insertAll = db.transaction((courses) => {
+      for (const c of courses) {
+        insert.run(
+          randomUUID(),
+          c.title,
+          c.description,
+          c.category,
+          c.level,
+          c.duration_minutes,
+          JSON.stringify(c.lessons),
+          "system",
+          Date.now()
+        );
+      }
+    });
 
-  const insertAll = db.transaction((courses) => {
-    for (const c of courses) {
-      insert.run(
-        randomUUID(),
-        c.title,
-        c.description,
-        c.category,
-        c.level,
-        c.duration_minutes,
-        JSON.stringify(c.lessons),
-        "system",
-        Date.now()
-      );
-    }
-  });
+    insertAll(SEED);
+    console.log(`Seeded ${SEED.length} courses into kwaxolo.db`);
+  }
 
-  insertAll(SEED);
-  console.log(`Seeded ${SEED.length} courses into kwaxolo.db`);
+  const schoolCount = db.prepare("SELECT COUNT(*) as n FROM schools").get().n;
+  if (schoolCount === 0) {
+    const insertSchool = db.prepare(
+      "INSERT INTO schools (id, name, code, created_at) VALUES (?, ?, ?, ?)"
+    );
+    const seedSchools = db.transaction(() => {
+      for (const name of SCHOOL_SEEDS) {
+        const code = name.toUpperCase().replace(/\s+/g, "-").slice(0, 12);
+        insertSchool.run(randomUUID(), name, code, Date.now());
+      }
+    });
+    seedSchools();
+    console.log(`Seeded ${SCHOOL_SEEDS.length} schools`);
+  }
+
+  const userCount = db.prepare("SELECT COUNT(*) as n FROM users").get().n;
+  if (userCount === 0) {
+    const hash = bcrypt.hashSync("admin123", 10);
+    db.prepare(
+      "INSERT INTO users (id, email, password_hash, display_name, role, school_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(randomUUID(), "admin@kwaxolo.org", hash, "Admin", "admin", null, Date.now());
+    console.log("Seeded admin user: admin@kwaxolo.org / admin123");
+  }
 })();
 
 // ============================================================================
 // EXPORTS
 // ============================================================================
+
+export { db };
+
+export function getUserByEmail(email) {
+  return db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+}
+
+export function getUserById(id) {
+  const row = db.prepare("SELECT id, email, display_name, role, school_id, created_at FROM users WHERE id = ?").get(id);
+  return row || null;
+}
+
+export function createUser({ email, passwordHash, displayName, role = "student", schoolId = null }) {
+  const id = randomUUID();
+  const now = Date.now();
+  db.prepare(
+    "INSERT INTO users (id, email, password_hash, display_name, role, school_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, email, passwordHash, displayName, role, schoolId, now);
+  return getUserById(id);
+}
+
+export function generateJoinCode() {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let code = "";
+  for (let i = 0; i < 4; i++) code += letters[Math.floor(Math.random() * 26)];
+  code += "-";
+  for (let i = 0; i < 3; i++) code += Math.floor(Math.random() * 10);
+  return code;
+}
 
 export function listCourses({ category } = {}) {
   const base =

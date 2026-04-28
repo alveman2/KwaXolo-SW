@@ -1,24 +1,23 @@
 import { useState } from "react";
+import { useAuth } from "./context/AuthContext";
 import LandingScreen from "./components/LandingScreen.jsx";
 import ObservationScreen from "./components/ObservationScreen.jsx";
 import OpportunityScreen from "./components/OpportunityScreen.jsx";
 import CoursesScreen from "./components/CoursesScreen.jsx";
 import CourseDetailScreen from "./components/CourseDetailScreen.jsx";
 import TeacherScreen from "./components/TeacherScreen.jsx";
-import { useLanguage, useStrings } from "./lib/i18n.jsx";
+import TeacherClassesScreen from "./components/TeacherClassesScreen.jsx";
 
-export default function App() {
+export default function App({ hideAuth } = {}) {
+  const { user, logout } = useAuth();
   // Top-level view: which section is active
-  const [view, setView] = useState("opportunity"); // "opportunity" | "courses" | "course-detail" | "teacher"
+  const [view, setView] = useState("opportunity"); // "opportunity" | "courses" | "course-detail" | "teacher" | "my-classes"
   const [selectedCourseId, setSelectedCourseId] = useState(null);
 
   // Opportunity flow sub-state
   const [step, setStep] = useState("landing"); // "landing" | "observation" | "opportunity"
   const [observation, setObservation] = useState("");
   const [opportunity, setOpportunity] = useState(null);
-
-  const { lang, setLang } = useLanguage();
-  const t = useStrings();
 
   function goToOpportunity() {
     setView("opportunity");
@@ -53,7 +52,7 @@ export default function App() {
           <button
             onClick={handleLogoClick}
             className="flex items-center gap-3 group"
-            aria-label={t.header.restart}
+            aria-label="Home"
           >
             <div className="w-9 h-9 grid grid-cols-2 gap-0.5">
               <div className="bg-kwaxolo-gold rounded-sm" />
@@ -71,44 +70,29 @@ export default function App() {
             </div>
           </button>
 
-          {/* Navigation + Language toggle */}
-          <div className="flex items-center gap-3">
-            <nav className="flex items-center gap-1">
-              <NavButton active={view === "opportunity"} onClick={goToOpportunity}>
-                {t.nav.findOpportunity}
-              </NavButton>
-              <NavButton active={view === "courses" || view === "course-detail"} onClick={goToCourses}>
-                {t.nav.courses}
-              </NavButton>
-              <NavButton active={view === "teacher"} onClick={() => setView("teacher")}>
-                {t.nav.teacher}
-              </NavButton>
-            </nav>
-
-            {/* Language toggle */}
-            <div className="flex items-center bg-stone-100 rounded-full p-0.5" style={{ width: 80 }}>
+          {/* Navigation */}
+          <nav className="flex items-center gap-1">
+            <NavButton active={view === "opportunity"} onClick={goToOpportunity}>
+              Find opportunity
+            </NavButton>
+            <NavButton active={view === "courses" || view === "course-detail"} onClick={goToCourses}>
+              Courses
+            </NavButton>
+            <NavButton active={view === "teacher"} onClick={() => setView("teacher")}>
+              Teacher
+            </NavButton>
+            <NavButton active={view === "my-classes"} onClick={() => setView("my-classes")}>
+              My Classes
+            </NavButton>
+            {user && (
               <button
-                onClick={() => setLang("en")}
-                className={`flex-1 text-xs font-semibold py-1 rounded-full transition ${
-                  lang === "en"
-                    ? "bg-kwaxolo-green text-white"
-                    : "text-stone-500 hover:text-stone-800"
-                }`}
+                onClick={logout}
+                className="ml-2 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-500 hover:text-stone-900 hover:bg-stone-50 transition"
               >
-                EN
+                Sign out
               </button>
-              <button
-                onClick={() => setLang("zu")}
-                className={`flex-1 text-xs font-semibold py-1 rounded-full transition ${
-                  lang === "zu"
-                    ? "bg-kwaxolo-green text-white"
-                    : "text-stone-500 hover:text-stone-800"
-                }`}
-              >
-                Zu
-              </button>
-            </div>
-          </div>
+            )}
+          </nav>
         </div>
       </header>
 
@@ -152,6 +136,11 @@ export default function App() {
         {/* ── Teacher mode ── */}
         {view === "teacher" && (
           <TeacherScreen onCourseSaved={openCourse} />
+        )}
+
+        {/* ── My Classes ── */}
+        {view === "my-classes" && (
+          <TeacherClassesScreen />
         )}
       </main>
 
