@@ -1,5 +1,11 @@
 import { useState, useEffect } from "react";
 
+// ── Strip HTML tags (isiZulu hover-word markup from LLM output) ────────────
+function stripHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+
 // ── Levenshtein distance for fuzzy fill_blank matching ─────────────────────
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
@@ -29,15 +35,17 @@ function TapCorrect({ step, onCorrect, onWrong, locked }) {
   function pick(opt) {
     if (locked || selected) return;
     setSelected(opt);
-    if (opt === step.correctAnswer) onCorrect();
+    if (stripHtml(opt) === stripHtml(step.correctAnswer)) onCorrect();
     else onWrong();
   }
   return (
     <div className="space-y-3 w-full">
       {(step.options || []).map((opt, i) => {
+        const cleanOpt = stripHtml(opt);
+        const cleanCorrect = stripHtml(step.correctAnswer);
         const isSelected = selected === opt;
-        const isCorrect = isSelected && opt === step.correctAnswer;
-        const isWrong = isSelected && opt !== step.correctAnswer;
+        const isCorrect = isSelected && cleanOpt === cleanCorrect;
+        const isWrong = isSelected && cleanOpt !== cleanCorrect;
         return (
           <button
             key={i}
@@ -49,7 +57,7 @@ function TapCorrect({ step, onCorrect, onWrong, locked }) {
                 selected ? "border-stone-200 bg-stone-50 text-stone-400" :
                 "border-stone-200 bg-white text-stone-800 hover:border-blue-400 hover:bg-blue-50 active:scale-95"}`}
           >
-            {opt}
+            {cleanOpt}
           </button>
         );
       })}
@@ -252,20 +260,26 @@ function DoAndConfirm({ step, onCorrect, onWrong, locked }) {
   function pick(opt) {
     if (locked || selected) return;
     setSelected(opt);
-    if (opt === step.correctAnswer) onCorrect(); else onWrong();
+    if (stripHtml(opt) === stripHtml(step.correctAnswer)) onCorrect(); else onWrong();
   }
   return (
     <div className="w-full space-y-3">
+      {step.instruction && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+          <span className="block text-amber-600 text-[10px] uppercase tracking-wide font-bold mb-1">Do this now</span>
+          {stripHtml(step.instruction)}
+        </div>
+      )}
       {step.visibleResult && (
         <div className="bg-stone-100 rounded-xl p-3 text-xs text-stone-600 text-center border border-stone-200">
           <span className="block text-stone-400 text-[10px] uppercase tracking-wide mb-1">What you see</span>
-          {step.visibleResult}
+          {stripHtml(step.visibleResult)}
         </div>
       )}
       {(step.options || []).map((opt, i) => {
         const isSelected = selected === opt;
-        const isCorrect = isSelected && opt === step.correctAnswer;
-        const isWrong = isSelected && opt !== step.correctAnswer;
+        const isCorrect = isSelected && stripHtml(opt) === stripHtml(step.correctAnswer);
+        const isWrong = isSelected && stripHtml(opt) !== stripHtml(step.correctAnswer);
         return (
           <button key={i} onClick={() => pick(opt)}
             disabled={!!selected || locked}
@@ -274,7 +288,7 @@ function DoAndConfirm({ step, onCorrect, onWrong, locked }) {
                 isWrong ? "border-red-400 bg-red-50 text-red-800" :
                 selected ? "border-stone-200 bg-stone-50 text-stone-400" :
                 "border-stone-200 bg-white text-stone-800 hover:border-blue-400 hover:bg-blue-50 active:scale-95"}`}>
-            {opt}
+            {stripHtml(opt)}
           </button>
         );
       })}
@@ -304,7 +318,7 @@ export default function PhoneSimulator({ task, onClose }) {
 
   function handleCorrect() {
     setAnswered(true);
-    setFeedbackMsg(step.feedbackCorrect || "Correct! ✓");
+    setFeedbackMsg(stripHtml(step.feedbackCorrect) || "Correct! ✓");
     setFeedbackOk(true);
   }
 
@@ -316,7 +330,7 @@ export default function PhoneSimulator({ task, onClose }) {
       setFeedbackMsg("Answer revealed. Read it and continue.");
       setFeedbackOk(false);
     } else {
-      setFeedbackMsg(step.feedbackWrong || "Not quite — try again.");
+      setFeedbackMsg(stripHtml(step.feedbackWrong) || "Not quite — try again.");
       setFeedbackOk(false);
     }
   }
@@ -380,7 +394,7 @@ export default function PhoneSimulator({ task, onClose }) {
           {/* Teach text */}
           {step.teach && (
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3">
-              <p className="text-sm text-blue-900 leading-relaxed">{step.teach}</p>
+              <p className="text-sm text-blue-900 leading-relaxed">{stripHtml(step.teach)}</p>
             </div>
           )}
 
@@ -398,7 +412,7 @@ export default function PhoneSimulator({ task, onClose }) {
 
           {/* Question */}
           <p className="text-base font-bold text-stone-900 leading-snug text-center">
-            {step.question}
+            {stripHtml(step.question)}
           </p>
 
           {/* Exercise */}
