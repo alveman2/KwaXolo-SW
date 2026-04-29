@@ -12,10 +12,13 @@ const GRADE_OPTIONS_VALUES = [
 ];
 
 const EXAMPLE_PROMPTS = [
-  "My Grade 10 students don't know how to write a CV",
-  "Students need basic budgeting skills before they start side businesses",
-  "I want to teach online safety because students are getting scammed on WhatsApp",
-  "Many students don't understand how to apply for SASSA grants",
+  { label: "WhatsApp Business", prompt: "Teach my students how to set up a WhatsApp Business profile for their side hustles" },
+  { label: "Create a Gmail Account", prompt: "Teach my students how to create a Gmail account step by step — they have never had an email address before" },
+  { label: "Profit & Revenue", prompt: "I want my Grade 10s to understand profit, revenue and cost using spaza shop examples" },
+  { label: "Facebook Marketplace", prompt: "How to list and sell products on Facebook Marketplace for beginners" },
+  { label: "Budget for Food Business", prompt: "Teach students how to write a simple budget for a small food business like baking or catering" },
+  { label: "Using a Web Browser", prompt: "My students have never used a computer before. Teach them how to open a web browser and search for something on Google" },
+  { label: "Using a Mouse", prompt: "Teach my students the basics of using a computer mouse — left click, right click, double click, scrolling and dragging" },
 ];
 
 const CATEGORY_LABEL = {
@@ -36,6 +39,8 @@ export default function TeacherScreen({ onCourseSaved }) {
   const [gradeLevel, setGradeLevel] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
+  const [progressPct, setProgressPct] = useState(0);
+  const [progressPhase, setProgressPhase] = useState("");
 
   // ── Step B: preview ────────────────────────────────────────────────────────
   const [preview, setPreview] = useState(null); // generated course object
@@ -50,8 +55,17 @@ export default function TeacherScreen({ onCourseSaved }) {
     if (!teacherInput.trim()) return;
     setGenerating(true);
     setGenerateError(null);
+    setProgressPct(0);
+    setProgressPhase("");
     try {
-      const course = await generateCourse(teacherInput.trim(), gradeLevel || undefined);
+      const course = await generateCourse(
+        teacherInput.trim(),
+        gradeLevel || undefined,
+        (pct, phase) => {
+          setProgressPct(pct);
+          setProgressPhase(phase);
+        }
+      );
       setPreview(course);
     } catch (err) {
       setGenerateError(err.message);
@@ -128,16 +142,16 @@ export default function TeacherScreen({ onCourseSaved }) {
           </div>
 
           <div>
-            <div className="text-xs text-stone-500 mb-2">Or try one of these:</div>
+            <div className="text-xs text-stone-500 mb-3">Try an example:</div>
             <div className="flex flex-wrap gap-2">
               {EXAMPLE_PROMPTS.map((p, i) => (
                 <button
                   key={i}
-                  onClick={() => setTeacherInput(p)}
+                  onClick={() => setTeacherInput(p.prompt)}
                   disabled={generating}
-                  className="text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-full transition disabled:opacity-50"
+                  className="text-sm bg-white border border-stone-200 hover:border-kwaxolo-green hover:bg-kwaxolo-green/5 text-stone-700 px-4 py-2 rounded-xl transition disabled:opacity-50"
                 >
-                  {p}
+                  {p.label}
                 </button>
               ))}
             </div>
@@ -168,10 +182,16 @@ export default function TeacherScreen({ onCourseSaved }) {
             )}
           </button>
           {generating && (
-            <p className="mt-2 text-xs text-stone-500">
-              This takes about 15–20 seconds. The AI is writing real lesson
-              content — not just titles.
-            </p>
+            <div className="mt-3 space-y-2">
+              <ProgressBar pct={progressPct} />
+              {progressPhase && (
+                <p className="text-xs text-stone-600 font-medium">{progressPhase}</p>
+              )}
+              <p className="text-xs text-stone-500">
+                This takes about 20–40 seconds. The AI is searching real app UI,
+                planning steps, and writing lesson content.
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -294,33 +314,277 @@ function LessonCard({ lesson, index }) {
       </button>
 
       {open && (
-        <div className="px-5 pb-5 border-t border-stone-100">
-          <div className="pt-4 space-y-3 mb-4">
-            {lesson.content.split("\n\n").map((para, i) => (
-              <p key={i} className="text-stone-700 text-sm leading-relaxed">
-                {para}
-              </p>
-            ))}
-          </div>
+        <div className="px-5 pb-5 border-t border-stone-100 space-y-4 pt-4">
+          {/* Objective */}
+          {lesson.teacherObjective && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <div className="text-xs uppercase tracking-wide text-blue-600 font-bold mb-1">Objective</div>
+              <p className="text-sm text-stone-700">{lesson.teacherObjective}</p>
+            </div>
+          )}
 
-          {lesson.keyPoints && lesson.keyPoints.length > 0 && (
+          {/* Teacher Prep */}
+          {lesson.teacherPrep?.length > 0 && (
+            <TeacherSection title="Preparation" color="amber">
+              <ul className="space-y-1">{lesson.teacherPrep.map((p, j) => <li key={j} className="text-sm text-stone-700">- {p}</li>)}</ul>
+            </TeacherSection>
+          )}
+
+          {/* Board Points */}
+          {lesson.keyPoints?.length > 0 && (
             <div className="bg-kwaxolo-green/5 border border-kwaxolo-green/20 rounded-xl p-4">
-              <div className="text-xs uppercase tracking-wide text-kwaxolo-green font-bold mb-2">
-                Key points
-              </div>
+              <div className="text-xs uppercase tracking-wide text-kwaxolo-green font-bold mb-2">Write on the Board</div>
               <ul className="space-y-1.5">
                 {lesson.keyPoints.map((point, j) => (
-                  <li
-                    key={j}
-                    className="flex items-start gap-2 text-sm text-stone-700"
-                  >
-                    <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full bg-kwaxolo-green text-white text-xs flex items-center justify-center font-bold">
-                      ✓
-                    </span>
+                  <li key={j} className="flex items-start gap-2 text-sm text-stone-700">
+                    <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full bg-kwaxolo-green text-white text-xs flex items-center justify-center font-bold">✓</span>
                     {point}
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/* Board Layout */}
+          {lesson.teacherBoardLayout && (
+            <div className="bg-stone-800 text-white rounded-xl p-4">
+              <div className="text-xs uppercase tracking-wide text-stone-400 font-bold mb-2">Blackboard Layout</div>
+              {lesson.teacherBoardLayout.title && <div className="text-center font-bold text-sm mb-2 border-b border-stone-600 pb-1">{lesson.teacherBoardLayout.title}</div>}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {lesson.teacherBoardLayout.leftColumn?.length > 0 && (
+                  <div>{lesson.teacherBoardLayout.leftColumn.map((l, j) => <div key={j} className="mb-1">{l}</div>)}</div>
+                )}
+                {lesson.teacherBoardLayout.rightColumn?.length > 0 && (
+                  <div>{lesson.teacherBoardLayout.rightColumn.map((r, j) => <div key={j} className="mb-1">{r}</div>)}</div>
+                )}
+              </div>
+              {lesson.teacherBoardLayout.bottomLine && <div className="text-xs text-stone-300 mt-2 pt-1 border-t border-stone-600">{lesson.teacherBoardLayout.bottomLine}</div>}
+            </div>
+          )}
+
+          {/* Teacher Script */}
+          {lesson.teacherScript?.length > 0 && (
+            <TeacherSection title="Teacher Script" color="indigo">
+              <div className="space-y-2">
+                {lesson.teacherScript.map((s, j) => (
+                  <div key={j} className="bg-white rounded-lg p-2 border border-stone-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold text-indigo-600">{s.section}</span>
+                      <span className="text-xs text-stone-400">{s.minutes} min</span>
+                    </div>
+                    <p className="text-xs text-stone-700"><span className="font-semibold">Say:</span> {s.say}</p>
+                    <p className="text-xs text-stone-500"><span className="font-semibold">Do:</span> {s.do}</p>
+                  </div>
+                ))}
+              </div>
+            </TeacherSection>
+          )}
+
+          {/* Explanation */}
+          {lesson.teacherExplanation && (
+            <TeacherSection title="Explain to Students" color="stone">
+              {lesson.teacherExplanation.split(/\n\n+/).map((para, j) => (
+                <p key={j} className="text-sm text-stone-700 leading-relaxed mb-2">{para}</p>
+              ))}
+            </TeacherSection>
+          )}
+
+          {/* Vocabulary */}
+          {lesson.teacherVocabulary?.length > 0 && (
+            <TeacherSection title="Vocabulary" color="teal">
+              <div className="grid gap-1">
+                {lesson.teacherVocabulary.map((v, j) => (
+                  <div key={j} className="flex items-baseline gap-2 text-xs">
+                    <span className="font-bold text-stone-800">{v.word}</span>
+                    <span className="text-stone-600">— {v.simpleMeaning}</span>
+                    {v.isiZuluSupport && <span className="text-teal-600 italic">({v.isiZuluSupport})</span>}
+                  </div>
+                ))}
+              </div>
+            </TeacherSection>
+          )}
+
+          {/* Discussion Questions */}
+          {lesson.teacherDiscussionQuestions?.length > 0 && (
+            <TeacherSection title="Discussion Questions" color="purple">
+              <ol className="space-y-1 list-decimal list-inside">
+                {lesson.teacherDiscussionQuestions.map((q, j) => <li key={j} className="text-sm text-stone-700">{q}</li>)}
+              </ol>
+            </TeacherSection>
+          )}
+
+          {/* Local Example */}
+          {lesson.teacherLocalExample && (
+            <div className="bg-green-50 border-l-4 border-green-400 rounded-r-xl p-3">
+              <div className="text-xs uppercase tracking-wide text-green-700 font-bold mb-1">Local Example</div>
+              <p className="text-sm text-stone-700 italic">{lesson.teacherLocalExample}</p>
+            </div>
+          )}
+
+          {/* Device Plan */}
+          {lesson.teacherDevicePlan && (
+            <TeacherSection title="Device Plan" color="cyan">
+              <div className="space-y-1 text-xs text-stone-700">
+                <p><span className="font-semibold">Enough devices:</span> {lesson.teacherDevicePlan.ifEnoughDevices}</p>
+                <p><span className="font-semibold">Shared devices:</span> {lesson.teacherDevicePlan.ifSharedDevices}</p>
+                <p><span className="font-semibold">No internet:</span> {lesson.teacherDevicePlan.ifNoInternet}</p>
+              </div>
+            </TeacherSection>
+          )}
+
+          {/* Common Mistakes */}
+          {lesson.teacherCommonMistakes?.length > 0 && (
+            <TeacherSection title="Common Mistakes" color="red">
+              {lesson.teacherCommonMistakes.map((m, j) => (
+                <div key={j} className="text-xs mb-1">
+                  <p className="text-red-700 font-medium">Mistake: {m.mistake}</p>
+                  <p className="text-stone-600">Response: {m.teacherResponse}</p>
+                </div>
+              ))}
+            </TeacherSection>
+          )}
+
+          {/* Time Guide */}
+          {lesson.teacherTimeGuide?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {lesson.teacherTimeGuide.map((t, j) => (
+                <span key={j} className="text-xs bg-stone-100 text-stone-600 px-2 py-1 rounded-lg">{t}</span>
+              ))}
+            </div>
+          )}
+
+          {/* Student task exercises */}
+          {lesson.studentTask && (
+            <StudentTaskPreview task={lesson.studentTask} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TeacherSection({ title, color, children }) {
+  const colorMap = {
+    amber: "bg-amber-50 border-amber-200 text-amber-700",
+    indigo: "bg-indigo-50 border-indigo-200 text-indigo-700",
+    stone: "bg-stone-50 border-stone-200 text-stone-600",
+    teal: "bg-teal-50 border-teal-200 text-teal-700",
+    purple: "bg-purple-50 border-purple-200 text-purple-700",
+    cyan: "bg-cyan-50 border-cyan-200 text-cyan-700",
+    red: "bg-red-50 border-red-200 text-red-700",
+  };
+  const classes = colorMap[color] || colorMap.stone;
+  return (
+    <div className={`rounded-xl border p-3 ${classes.split(" ").slice(0, 2).join(" ")}`}>
+      <div className={`text-xs uppercase tracking-wide font-bold mb-2 ${classes.split(" ")[2]}`}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+const EXERCISE_TYPE_LABEL = {
+  tap_correct: "Multiple choice",
+  fill_blank: "Fill in the blank",
+  arrange_steps: "Arrange steps",
+  match_pairs: "Match pairs",
+  do_and_confirm: "Do & confirm",
+};
+
+const EXERCISE_TYPE_COLOR = {
+  tap_correct: "bg-blue-100 text-blue-700",
+  fill_blank: "bg-amber-100 text-amber-700",
+  arrange_steps: "bg-purple-100 text-purple-700",
+  match_pairs: "bg-emerald-100 text-emerald-700",
+  do_and_confirm: "bg-rose-100 text-rose-700",
+};
+
+function StudentTaskPreview({ task }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div>
+          <div className="text-xs uppercase tracking-wide text-orange-600 font-bold mb-1">
+            Student Task ({task.steps?.length || 0} steps)
+          </div>
+          {task.whatYouWillDo && (
+            <p className="text-sm text-stone-700">{task.whatYouWillDo}</p>
+          )}
+        </div>
+        <ChevronIcon open={expanded} />
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {(task.steps || []).map((step, i) => (
+            <div key={i} className="bg-white rounded-lg p-3 border border-stone-200">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-bold text-stone-500">
+                  Step {step.number || i + 1}
+                </span>
+                {step.screenName && (
+                  <span className="text-xs text-stone-400">{step.screenName}</span>
+                )}
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    EXERCISE_TYPE_COLOR[step.exerciseType] || "bg-stone-100 text-stone-600"
+                  }`}
+                >
+                  {EXERCISE_TYPE_LABEL[step.exerciseType] || step.exerciseType}
+                </span>
+              </div>
+              {step.teach && (
+                <p className="text-xs text-stone-600 mb-1.5">{step.teach}</p>
+              )}
+              <p className="text-sm font-medium text-stone-800">{step.question}</p>
+              {step.exerciseType === "tap_correct" && step.options && (
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {step.options.map((opt, j) => (
+                    <span
+                      key={j}
+                      className={`text-xs px-2 py-1 rounded-lg border ${
+                        opt === step.correctAnswer
+                          ? "bg-green-50 border-green-300 text-green-700 font-semibold"
+                          : "bg-white border-stone-200 text-stone-600"
+                      }`}
+                    >
+                      {opt}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {step.exerciseType === "fill_blank" && step.acceptedAnswers && (
+                <div className="mt-1.5 text-xs text-stone-500">
+                  Accepted: {step.acceptedAnswers.join(", ")}
+                </div>
+              )}
+              {step.exerciseType === "arrange_steps" && step.correctOrder && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {step.correctOrder.map((tile, j) => (
+                    <span key={j} className="text-xs bg-purple-50 border border-purple-200 text-purple-700 px-2 py-0.5 rounded">
+                      {j + 1}. {tile}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {step.exerciseType === "match_pairs" && step.pairs && (
+                <div className="mt-1.5 space-y-0.5">
+                  {step.pairs.map((pair, j) => (
+                    <div key={j} className="text-xs text-stone-600">
+                      <span className="font-medium">{pair.term}</span> → {pair.match}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {task.thinkAboutThis && (
+            <div className="bg-orange-100 rounded-lg p-3 text-sm text-orange-800">
+              <span className="font-semibold">Reflection:</span> {task.thinkAboutThis}
             </div>
           )}
         </div>
@@ -361,5 +625,16 @@ function Spinner() {
         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
       />
     </svg>
+  );
+}
+
+function ProgressBar({ pct = 0 }) {
+  return (
+    <div className="w-full bg-stone-200 rounded-full h-1.5 overflow-hidden">
+      <div
+        className="h-full bg-kwaxolo-green rounded-full transition-all duration-500 ease-out"
+        style={{ width: `${Math.max(pct, 2)}%` }}
+      />
+    </div>
   );
 }

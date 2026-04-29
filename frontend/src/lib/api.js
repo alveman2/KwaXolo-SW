@@ -39,17 +39,35 @@ export async function createCourse(course) {
   return res.json();
 }
 
-export async function generateCourse(teacherInput, gradeLevel) {
-  const res = await fetch("/api/teacher/generate-course", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ teacherInput, gradeLevel }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || err.error || "Course generation failed");
+export async function generateCourse(teacherInput, gradeLevel, onProgress) {
+  const reqId = Date.now().toString();
+
+  // Connect to SSE progress stream if callback provided
+  let eventSource;
+  if (onProgress) {
+    eventSource = new EventSource(`/api/teacher/generate-progress/${reqId}`);
+    eventSource.onmessage = (e) => {
+      try {
+        const { pct, phase } = JSON.parse(e.data);
+        onProgress(pct, phase);
+      } catch { /* ignore parse errors */ }
+    };
   }
-  return res.json();
+
+  try {
+    const res = await fetch("/api/teacher/generate-course", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teacherInput, gradeLevel, reqId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.error || "Course generation failed");
+    }
+    return res.json();
+  } finally {
+    if (eventSource) eventSource.close();
+  }
 }
 
 export async function translate(text, targetLang) {

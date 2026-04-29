@@ -8,3 +8,4 @@ dist/
 backend/kwaxolo.db
 backend/kwaxolo.db-shm
 backend/kwaxolo.db-wal
+backend/logs/raw/

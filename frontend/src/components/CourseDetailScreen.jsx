@@ -4,6 +4,7 @@ import { getMyProgress, markLessonComplete } from "../lib/studentApi.js";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage, useStrings } from "../lib/i18n.jsx";
 import PhoneMockup from "./PhoneMockup.jsx";
+import GlossaryText from "./GlossaryText.jsx";
 
 export default function CourseDetailScreen({ courseId, onBack }) {
   const { user } = useAuth();
@@ -244,7 +245,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
               <div className="space-y-4 mb-6">
                 {lesson.content.split("\n\n").map((para, i) => (
                   <p key={i} className="text-stone-700 leading-relaxed">
-                    {para}
+                    <GlossaryText text={para} />
                   </p>
                 ))}
               </div>
@@ -260,7 +261,7 @@ export default function CourseDetailScreen({ courseId, onBack }) {
                         <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full bg-kwaxolo-green text-white text-xs flex items-center justify-center font-bold">
                           ✓
                         </span>
-                        {point}
+                        <GlossaryText text={point} />
                       </li>
                     ))}
                   </ul>

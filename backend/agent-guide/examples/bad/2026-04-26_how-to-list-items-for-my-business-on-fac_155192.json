@@ -1,0 +1,81 @@
+{
+  "reqId": "1777239155192",
+  "topic": "how to list items for my business on facebook marketplace",
+  "category": "C",
+  "generatedAt": "2026-04-26T21:33:58.622Z",
+  "stepCount": 7,
+  "localGrounding": true,
+  "inputs": {
+    "topic": "how to list items for my business on facebook marketplace",
+    "struggles": "they struggel. with the navigation, key words and more",
+    "time": "30 minutes",
+    "context": "important for the student to learn about sales and distribution"
+  },
+  "lesson": {
+    "teacherTitle": "Listing Items on Facebook Marketplace",
+    "teacherObjective": "After this lesson, you will have successfully created and published a listing for your item on Facebook Marketplace.",
+    "teacherBoardPoints": [
+      "Download Facebook app",
+      "Explore Marketplace section",
+      "Create new listing",
+      "Include details: photo, title, price",
+      "Contact method: WhatsApp"
+    ],
+    "teacherExplanation": "Facebook Marketplace is a powerful tool for selling items locally. Many adults in the community use it to buy and sell daily necessities. It's a platform where people can safely buy from others in their area without hidden costs. Understanding this tool can be an advantage for your entrepreneurial journey.\n\nInkify, a local print store owned by Samke Jaca and Ntokozo Gwacela, has effectively leveraged Facebook Marketplace to offer printing services. They found that it helps them connect with potential clients around KwaZulu-Natal without spending any money. This can be particularly useful if you are starting with zero capital.\n\nLearning to list items on Facebook Marketplace empowers you to reach a broader audience and improve your sales skills. As a student, you can sell items or services you create, such as baked goods, crafts, or tutoring services. By mastering this tool, you can start a small business right from your phone, increasing your understanding of sales and distribution.",
+    "teacherDiscussionQuestions": [
+      "What businesses in our community use Facebook Marketplace?",
+      "How can you ensure safety when meeting buyers?",
+      "What product would you like to list on Marketplace?"
+    ],
+    "teacherLocalExample": "One student, inspired by 1LT Bakery's success in baking bread with zero capital, could consider listing home-baked goods on Facebook Marketplace to connect with nearby buyers.",
+    "teacherTimeGuide": [
+      "5 min: Introduction to Facebook Marketplace",
+      "15 min: Step-by-step guide to create listing",
+      "5 min: Discussing potential businesses to list",
+      "5 min: Peer sharing of listing ideas",
+      "5 min: Final review and questions"
+    ],
+    "appName": "Facebook",
+    "appColor": "#3b5998",
+    "appTextColor": "#fff",
+    "taskTitle": "List Items on Facebook Marketplace",
+    "taskIntro": "You will have your products listed and visible to potential buyers.",
+    "taskTime": "10–15 minutes",
+    "taskReflection": "How do you think showcasing your products online can impact your sales?",
+    "steps": [
+      {
+        "screenType": "play_store_app",
+        "teach": "Open the Play Store app on your Android device. This is where you find and insta"
+      },
+      {
+        "screenType": "play_store_search",
+        "teach": "Use the search bar to find the Facebook app. Type 'Facebook' and tap the search "
+      },
+      {
+        "screenType": "play_store_app",
+        "teach": "Find the Facebook app in the search results. Tap 'Install' to download it on you"
+      },
+      {
+        "screenType": "play_store_app",
+        "teach": "Wait for the Facebook app to install. Once done, tap 'Open' to launch the app."
+      },
+      {
+        "screenType": "facebook_feed",
+        "teach": "Open Facebook from your device. This is the home screen where you see your news "
+      },
+      {
+        "screenType": "facebook_marketplace",
+        "teach": "Tap on the Marketplace icon to access the Marketplace section."
+      },
+      {
+        "screenType": "fb_listing_form",
+        "teach": "To create a listing, tap on 'Create New Listing'. Fill in the details such as photo, price, and title."
+      }
+    ],
+    "_category": "C",
+    "teacherPlanHTML": "<div class=\"tp\">\n  <div class=\"tp-hd\">\n    <div class=\"tp-obj-lbl\">Learning Objective</div>\n    <h1 class=\"tp-title\">Listing Items on Facebook Marketplace</h1>\n    <p class=\"tp-obj\">After this lesson, you will have successfully created and published a listing for your item on Facebook Marketplace.</p>\n  </div>\n  <div class=\"tp-board\">\n    <div class=\"tp-board-ttl\">✏ Write on the Board</div>\n    <div class=\"tp-board-sub\">Write these before class starts — students copy them down</div>\n    <ul class=\"tp-bl\"><li>Download Facebook app</li><li>Explore Marketplace section</li><li>Create new listing</li><li>Include details: photo, title, price</li><li>Contact method: WhatsApp</li></ul>\n  </div>\n  <div class=\"tp-sec\">\n    <h2 class=\"tp-h2\"><span class=\"tp-num\">2</span>Explain to Students</h2>\n    <div class=\"tp-script-note\">Read this aloud — then explain in your own words</div>\n    <div class=\"tp-expl\"><p>Facebook Marketplace is a powerful tool for selling items locally. Many adults in the community use it to buy and sell daily necessities. It's a platform where people can safely buy from others in their area without hidden costs. Understanding this tool can be an advantage for your entrepreneurial journey.</p><p>Inkify, a local print store owned by Samke Jaca and Ntokozo Gwacela, has effectively leveraged Facebook Marketplace to offer printing services. They found that it helps them connect with potential clients around KwaZulu-Natal without spending any money. This can be particularly useful if you are starting with zero capital.</p><p>Learning to list items on Facebook Marketplace empowers you to reach a broader audience and improve your sales skills. As a student, you can sell items or services you create, such as baked goods, crafts, or tutoring services. By mastering this tool, you can start a small business right from your phone, increasing your understanding of sales and distribution.</p></div>\n  </div>\n  <div class=\"tp-sec\">\n    <h2 class=\"tp-h2\"><span class=\"tp-num\">3</span>Discussion Questions</h2>\n    <ol class=\"tp-qs\"><li><span class=\"tp-qn\">1</span><span>What businesses in our community use Facebook Marketplace?</span></li><li><span class=\"tp-qn\">2</span><span>How can you ensure safety when meeting buyers?</span></li><li><span class=\"tp-qn\">3</span><span>What product would you like to list on Marketplace?</span></li></ol>\n  </div>\n  <div class=\"tp-sec\">\n    <h2 class=\"tp-h2\"><span class=\"tp-num\">4</span>Local Example</h2>\n    <div class=\"tp-local\">One student, inspired by 1LT Bakery's success in baking bread with zero capital, could consider listing home-baked goods on Facebook Marketplace to connect with nearby buyers.</div>\n  </div>\n  <div class=\"tp-tg\">\n    <div class=\"tp-tg-ttl\">Time Guide — 30 minutes</div>\n    <div class=\"tp-ti\"><span class=\"tp-td\">5 min</span><span class=\"tp-ta\">Introduction to Facebook Marketplace</span></div><div class=\"tp-ti\"><span class=\"tp-td\">15 min</span><span class=\"tp-ta\">Step-by-step guide to create listing</span></div><div class=\"tp-ti\"><span class=\"tp-td\">5 min</span><span class=\"tp-ta\">Discussing potential businesses to list</span></div><div class=\"tp-ti\"><span class=\"tp-td\">5 min</span><span class=\"tp-ta\">Peer sharing of listing ideas</span></div><div class=\"tp-ti\"><span class=\"tp-td\">5 min</span><span class=\"tp-ta\">Final review and questions</span></div>\n  </div>\n  <button class=\"tp-print no-print\" onclick=\"window.print()\">Print Lesson Plan</button>\n</div>"
+  },
+  "savedAt": "2026-04-26T21:39:02.183Z",
+  "rating": "bad",
+  "comment": "The slides were repetative, did not suite the whole UX for the students and could be more presice"
+}

@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import OpenAI from "openai";
+import { AzureOpenAI } from "openai";
+import OpenAIDefault from "openai";
 import { db, listCourses, getCourse, createCourse } from "./db.js";
 import authRouter from "./auth.js";
 import studentRouter from "./routes/student.js";
@@ -23,6 +24,17 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 
+import { getTemplate, getTemplatesByCategory, getCategories } from "./templates.js";
+import { validateCourseOutput } from "./validation.js";
+import {
+  writeGenerationLog, saveGoodExample, saveBadExample,
+  listExamples, getTokenHistory,
+} from "./logging.js";
+import {
+  GUIDE_FILES, detectCategory, getCategoryRules,
+  enforceExerciseRotation, fixMissingExerciseFields, getExerciseTypeHint,
+  detectAppName, loadAppDesignMD, SCREEN_TYPES, loadFewShotExamples,
+} from "./agent-guide.js";
 
 dotenv.config();
 
@@ -44,15 +56,222 @@ app.use("/api/auth", authRouter);
 
 // Role-based routes
 app.use("/api", studentRouter);
-app.use("/api/teacher", teacherRouter);
+// NOTE: teacherRouter is mounted AFTER the generate-course and example routes
+// defined below, so those public routes are not blocked by teacher auth middleware.
 
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Azure OpenAI client (all API calls)
+const openai = process.env.AZURE_OPENAI_API_KEY
+  ? new AzureOpenAI({
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiVersion: process.env.AZURE_OPENAI_API_VERSION || "2025-04-01-preview",
+    })
   : null;
 
-// ============================================================================
+const MODEL_TEACHER = process.env.AZURE_DEPLOYMENT_TEACHER || "gpt-5.4-mini";
+const MODEL_STUDENT = process.env.AZURE_DEPLOYMENT_STUDENT || "gpt-5.4";
+
+// Optional: regular OpenAI client for web search (web_search_preview tool)
+const openaiDirect = process.env.OPENAI_API_KEY
+  ? new OpenAIDefault.default({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
+if (openaiDirect) {
+  console.log("OpenAI direct client configured — web search phase enabled");
+} else {
+  console.log("No OPENAI_API_KEY — web search phase will be skipped (UI steps may be less accurate)");
+}
+
+// PHASE 1: Web search — ground UI steps in real app buttons/screens
+// Uses OpenAI Responses API with web_search_preview (requires OPENAI_API_KEY)
+// Results cached to disk, reused for CACHE_TTL_DAYS (default 30 days).
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const SEARCH_CACHE_DIR = path.join(__dirname, "cache", "web-search");
+const CACHE_TTL_DAYS = parseInt(process.env.SEARCH_CACHE_TTL_DAYS || "30", 10);
+fs.mkdirSync(SEARCH_CACHE_DIR, { recursive: true });
+
+function slugify(text) {
+  return (text || "untitled").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+function searchCachePath(topic) {
+  return path.join(SEARCH_CACHE_DIR, `${slugify(topic)}.json`);
+}
+
+function readSearchCache(topic) {
+  const file = searchCachePath(topic);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!data.result || !data.cachedAt) return null;
+    const ageMs = Date.now() - new Date(data.cachedAt).getTime();
+    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    if (ageDays > CACHE_TTL_DAYS) return null;
+    return { result: data.result, ageDays: Math.floor(ageDays) };
+  } catch { return null; }
+}
+
+function writeSearchCache(topic, result) {
+  fs.writeFileSync(
+    searchCachePath(topic),
+    JSON.stringify({ topic, result, cachedAt: new Date().toISOString() }, null, 2)
+  );
+}
+
+async function searchUIContext(topic) {
+  // Check cache first
+  const cached = readSearchCache(topic);
+  if (cached) {
+    console.log(`  Web search cache HIT (${cached.ageDays}d old): "${topic}"`);
+    return cached.result;
+  }
+
+  if (!openaiDirect) return "";
+  try {
+    const response = await openaiDirect.responses.create({
+      model: "gpt-4o-mini",
+      tools: [{ type: "web_search_preview" }],
+      input: `Find a detailed step-by-step tutorial for: "${topic}" on an Android smartphone.
+
+I need the following for a student who has NEVER done this before:
+1. The EXACT name of every screen the user sees, in the order they appear
+2. The EXACT label of every button they need to tap
+3. Every form field they fill in, and what kind of information goes there
+4. Any verification or confirmation steps (SMS codes, agree/accept screens, etc.)
+5. What the final success screen looks like and how the student knows they are done
+6. The 3 most common mistakes beginners make and how to avoid them
+
+Be very specific about button labels — use the exact text as it appears in the app.
+Under 500 words total.`
+    });
+    const result = response.output_text;
+    writeSearchCache(topic, result);
+    console.log(`  Web search complete — cached: cache/web-search/${slugify(topic)}.json`);
+    return result;
+  } catch (e) {
+    console.warn("Web search failed (non-fatal):", e.message);
+    return "";
+  }
+}
+
+// Auto-generate app design MD after lesson generation (non-blocking)
+// If a known app is detected but no design ref exists, generate one from the
+// web search context and save it for future lessons.
+async function maybeGenerateAppDesignMD(appName, uiContext) {
+  if (!appName || !openaiDirect) return;
+  const existing = loadAppDesignMD(appName);
+  if (existing) return;
+
+  const APP_DESIGN_SAVE_DIR = path.join(__dirname, "agent-guide", "09-app-design-refs", appName);
+  try {
+    fs.mkdirSync(APP_DESIGN_SAVE_DIR, { recursive: true });
+    const response = await openaiDirect.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 1500,
+      messages: [{
+        role: "user",
+        content: `Create a concise phone UI design spec for the "${appName}" Android app.
+
+Use this real UI information as reference:
+${(uiContext || "").slice(0, 2000)}
+
+Include these sections:
+1. **Overview** — what the app does, Android focus
+2. **Brand Colours** — primary, background, text hex values
+3. **Key Screens** — name, purpose, 3-5 UI elements with exact button labels
+4. **First-Time User Flow** — ordered screen sequence from install to first success
+5. **Common UI Patterns** — recurring elements (nav bar, FABs, tabs) with exact labels
+
+Under 600 words. Markdown format.`
+      }],
+    });
+    const md = response.choices[0].message.content;
+    const filename = `${appName.toLowerCase().replace(/\s+/g, "_")}_phone_design.md`;
+    fs.writeFileSync(path.join(APP_DESIGN_SAVE_DIR, filename), md);
+    console.log(`  Auto-generated app design: 09-app-design-refs/${appName}/${filename}`);
+  } catch (e) {
+    console.warn(`  App design auto-gen failed for "${appName}" (non-fatal):`, e.message);
+  }
+}
+
+// PHASE 2: Step planning — plan a thorough 10-step outline before generating
+async function planSteps(topic, uiContext) {
+  if (!openai) return null;
+  try {
+    const response = await openai.chat.completions.create({
+      model: MODEL_TEACHER,
+      response_format: { type: "json_object" },
+      messages: [{
+        role: "user",
+        content: `Create a thorough step plan for teaching a complete beginner: "${topic}"
+
+Student: 13–18 years old, rural KwaZulu-Natal, South Africa. Basic Android phone.
+Has NEVER used this app or done this task before. Treat every screen as completely new.
+
+Real app UI from web search:
+${uiContext || "Use your knowledge of the real app UI."}
+
+RULES FOR THE STEP PLAN:
+- Return EXACTLY 10 steps. NEVER more.
+- If the task seems to need more than 10, merge related screens into one step.
+- Start from the ABSOLUTE beginning:
+    → If the app needs installing: Step 1 = Open Play Store
+    → If the app needs an account: include EVERY signup screen as its own step
+- Every screen the user sees = its own step
+- Every form that needs filling = its own step (or grouped if on the same screen)
+- Every verification step (SMS code, agree button, confirm screen) = its own step
+- The FINAL step must show the student COMPLETING the main goal, not just setting up:
+    → "Send email" task: last step = tap Send, see sent confirmation
+    → "Create listing" task: last step = listing published, visible to others
+    → "Set up profile" task: last step = profile saved, visible to others
+- Name the specific screen and button in each step description
+
+Return JSON:
+{
+  "mainObjective": "One sentence — what the student will have DONE by the final step",
+  "fullStepOutline": [
+    "Step 1: [screen name] — [exact action and button]",
+    "Step 2: [screen name] — [exact action and button]",
+    ...exactly 10 steps...
+  ]
+}`
+      }]
+    });
+
+    const plan = JSON.parse(response.choices[0].message.content);
+    plan.fullStepOutline = (plan.fullStepOutline || []).slice(0, 10);
+    return plan;
+  } catch (e) {
+    console.warn("Step planning failed (non-fatal):", e.message);
+    return null;
+  }
+}
+
+// SSE progress tracking for long-running generation
+const progressClients = new Map();
+
+app.get("/api/teacher/generate-progress/:id", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+  });
+  progressClients.set(req.params.id, res);
+  req.on("close", () => progressClients.delete(req.params.id));
+});
+
+function sendProgress(reqId, pct, phase) {
+  const client = progressClients.get(reqId);
+  if (client) {
+    client.write(`data: ${JSON.stringify({ pct, phase })}\n\n`);
+  }
+}
+
 // SHARED REGIONAL CONTEXT — included in both system prompts below.
-// ============================================================================
 const REGION_CONTEXT = `
 GEOGRAPHIC AND ECONOMIC CONTEXT YOU KNOW DEEPLY:
 
@@ -192,9 +411,7 @@ mentor others and create knock-on opportunities. Money that stays local
 multiplies; money sent to Port Shepstone or Durban is gone.
 `;
 
-// ============================================================================
 // OPPORTUNITY ADVISOR PROMPT
-// ============================================================================
 const KWAXOLO_CONTEXT = `
 You are an opportunity-spotting business advisor with 20 years of experience
 in rural KwaZulu-Natal, South Africa. You specifically know the KwaXolo
@@ -300,12 +517,10 @@ When you are ready to propose:
 }
 `;
 
-// ============================================================================
 // ROUTE: /api/opportunity
 // Takes the user's observation and returns a structured opportunity.
-// ============================================================================
 app.post("/api/opportunity", async (req, res) => {
-  if (!openai) return res.status(503).json({ error: "OpenAI API key not configured." });
+  if (!openai) return res.status(503).json({ error: "Azure OpenAI not configured." });
   const { observation, history } = req.body;
 
   if (!observation || typeof observation !== "string") {
@@ -316,7 +531,7 @@ app.post("/api/opportunity", async (req, res) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_TEACHER,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: KWAXOLO_CONTEXT },
@@ -330,18 +545,16 @@ app.post("/api/opportunity", async (req, res) => {
     const parsed = JSON.parse(raw);
     res.json(parsed);
   } catch (err) {
-    console.error("OpenAI error:", err);
+    console.error("Azure OpenAI error:", err);
     res.status(500).json({ error: "AI request failed.", detail: err.message });
   }
 });
 
-// ============================================================================
 // ROUTE: /api/refine
 // Follow-up: user asks a question about the opportunity (e.g. "how do I
 // scale this?"). Keeps conversation going.
-// ============================================================================
 app.post("/api/refine", async (req, res) => {
-  if (!openai) return res.status(503).json({ error: "OpenAI API key not configured." });
+  if (!openai) return res.status(503).json({ error: "Azure OpenAI not configured." });
   const { history, question } = req.body;
 
   if (!Array.isArray(history) || !question) {
@@ -350,7 +563,7 @@ app.post("/api/refine", async (req, res) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_TEACHER,
       messages: [
         { role: "system", content: KWAXOLO_CONTEXT.replace(/RESPONSE FORMAT:[\s\S]*$/, "RESPONSE FORMAT: Reply in plain text, 3-5 sentences, concrete and specific.") },
         ...history,
@@ -361,14 +574,12 @@ app.post("/api/refine", async (req, res) => {
 
     res.json({ reply: completion.choices[0].message.content });
   } catch (err) {
-    console.error("OpenAI error:", err);
+    console.error("Azure OpenAI error:", err);
     res.status(500).json({ error: "AI request failed.", detail: err.message });
   }
 });
 
-// ============================================================================
 // ROUTE: /api/translate
-// ============================================================================
 const translationCache = new Map();
 
 app.post("/api/translate", async (req, res) => {
@@ -396,7 +607,7 @@ app.post("/api/translate", async (req, res) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_TEACHER,
       response_format: isObject ? { type: "json_object" } : undefined,
       messages: [
         { role: "system", content: systemPrompt },
@@ -415,9 +626,7 @@ app.post("/api/translate", async (req, res) => {
   }
 });
 
-// ============================================================================
 // ROUTES: /api/courses
-// ============================================================================
 
 app.get("/api/courses", (req, res) => {
   const { category } = req.query;
@@ -441,101 +650,635 @@ app.post("/api/courses", (req, res) => {
   res.status(201).json(course);
 });
 
-// ============================================================================
-// TEACHER PROMPT + ROUTE: /api/teacher/generate-course
-// ============================================================================
-const TEACHER_CONTEXT = `
-You are an expert instructional designer working with rural KwaZulu-Natal
-schools (Grade 8–12). You create practical, engaging lesson content for
-students in the KwaXolo community.
+// PROMPT BUILDERS — inject agent guide files dynamically
+
+function buildTeacherPrompt(categoryRules) {
+  const G = GUIDE_FILES;
+  return `You generate teacher lesson plans for KwaXolo Impact — entrepreneurship education in rural KwaZulu-Natal.
+
 ${REGION_CONTEXT}
-YOUR TASK:
-A teacher will describe what their students need to learn. You must generate
-a complete, ready-to-use course with 3–5 lessons. Every lesson must contain
-real, usable content — never placeholder text.
 
-CONTENT GUIDELINES:
-- Write for beginner learners (Grade 8–12 students in rural KZN).
-- Use plain, clear English. Short sentences. Active voice.
-- Each lesson's "content" field must be 150–300 words across 2–3 paragraphs.
-- Use concrete local examples: Port Shepstone, Durban, spaza shops, taxi rank,
-  SASSA grants, learnerships, school principals, the Msenti Hub, load-shedding.
-- Where it helps understanding, include common isiZulu words or phrases in
-  parentheses — e.g. "your community (umphakathi)".
-- Never use generic filler like "In today's world..." or "It is important to..."
-  — dive straight into the content.
-- keyPoints are short, memorable bullets (under 12 words each).
+════════════════════════════════════════════
+SECTION 00 — WHAT THE AGENT DOES
+════════════════════════════════════════════
+${G.whatAgentDoes}
 
-RESPONSE FORMAT:
-Respond with valid JSON only — no markdown code fences, no commentary.
-The JSON must match this exact shape:
+════════════════════════════════════════════
+SECTION 00 — CORE CONSTRAINTS
+════════════════════════════════════════════
+${G.constraints}
+
+════════════════════════════════════════════
+SECTION 00 — NEVER DO THIS
+════════════════════════════════════════════
+${G.neverDo}
+
+════════════════════════════════════════════
+SECTION 01 — SYSTEM PROMPT
+════════════════════════════════════════════
+${G.systemPrompt}
+
+════════════════════════════════════════════
+SECTION 02 — TEACHER LESSON PLAN STRUCTURE
+════════════════════════════════════════════
+${G.lessonStructure}
+
+════════════════════════════════════════════
+SECTION 04 — CONTENT TEMPLATES OVERVIEW
+════════════════════════════════════════════
+${G.templateOverview}
+
+${categoryRules ? `════════════════════════════════════════════
+SECTION 04 — CATEGORY-SPECIFIC RULES FOR THIS TOPIC
+════════════════════════════════════════════
+${categoryRules}` : ""}
+
+════════════════════════════════════════════
+SECTION 05 — ENGLISH WRITING STANDARD
+════════════════════════════════════════════
+${G.englishStandard}
+
+════════════════════════════════════════════
+SECTION 06 — DESIGN SYSTEM (brand colors, typography)
+════════════════════════════════════════════
+${G.brandColors}
+
+${G.typography}
+
+════════════════════════════════════════════
+SECTION 07 — OUTPUT FORMAT (teacher PDF spec)
+════════════════════════════════════════════
+${G.teacherPdfSpec}
+
+════════════════════════════════════════════
+SECTION 08 — QUALITY CHECKLIST
+════════════════════════════════════════════
+${G.qualityChecklist}
+
+════════════════════════════════════════════
+EXAMPLE OF A GOOD TEACHER LESSON PLAN
+════════════════════════════════════════════
+${G.exampleLesson}
+
+════════════════════════════════════════════
+FEW-SHOT EXAMPLES FROM TEACHER FEEDBACK
+════════════════════════════════════════════
+${loadFewShotExamples() || "No examples yet — generate high quality content."}
+
+════════════════════════════════════════════
+LOCAL CONTEXT — USE THESE REFERENCES BY NAME
+════════════════════════════════════════════
+- Msenti Entrepreneurship Hub — Victor Jaca (CEO). Business registration, mentorship, IT support.
+- SEDA Port Shepstone — free government business registration
+- Dolly Dlezi — accountant at Msenti Hub
+- Caleb Phehlukwayo — former principal, community trust figure
+- Chief Inkosi Xolo — traditional Zulu authority
+- 1LT Bakery — Thabo Shude
+- Hlobisile Pearl Studios — photography and events
+- Inkify — Samke Jaca and Ntokozo Gwacela, print store
+- Capitec — most accessible bank (no minimum balance)
+- MTN Mobile Money, FNB eWallet — mobile payments
+- WhatsApp — the primary business communication tool
+Generic examples are REJECTED. Name a specific person/business/place.
+
+────────────────────────────────────────────
+RESPONSE FORMAT
+────────────────────────────────────────────
+Return valid JSON only — no markdown fences, no commentary.
 {
-  "title": "Clear course title, max 8 words",
-  "description": "1-2 sentences describing what students will learn and why it matters for their lives in KwaXolo.",
-  "category": "phase1" | "phase2" | "business" | "custom",
-  "level": "beginner" | "intermediate",
-  "duration_minutes": <realistic integer>,
+  "title": "Max 8 words, plain English",
+  "description": "1-2 sentences about what students learn",
+  "category": "phase1 | phase2 | business | custom",
+  "level": "beginner | intermediate",
+  "duration_minutes": 45,
   "lessons": [
     {
-      "title": "Lesson title",
-      "content": "2-3 paragraphs of beginner-friendly plain text with concrete KwaXolo/KZN examples",
-      "keyPoints": ["short bullet 1", "short bullet 2", "short bullet 3", "short bullet 4"]
+      "teacherTitle": "Lesson title, max 8 words, plain English",
+      "teacherObjective": "After this lesson, you will be able to...",
+      "teacherPrep": ["Prepare item 1", "Prepare item 2", "Prepare item 3"],
+      "teacherBoardPoints": ["point 1 max 6 words", "point 2", "point 3", "point 4", "point 5"],
+      "teacherBoardLayout": {
+        "title": "Board heading matching lesson title",
+        "leftColumn": ["keyword: plain meaning", "keyword: plain meaning"],
+        "rightColumn": ["Step 1: class activity", "Step 2: class activity"],
+        "bottomLine": "One reminder sentence students copy down"
+      },
+      "teacherScript": [
+        { "section": "Open", "minutes": 5, "say": "What teacher says to open", "do": "What teacher does" },
+        { "section": "Explain", "minutes": 10, "say": "Explain with named KZN example", "do": "Write on board, point, demonstrate" },
+        { "section": "Practice", "minutes": 15, "say": "Guide students through task", "do": "Walk around, help groups" },
+        { "section": "Check", "minutes": 5, "say": "Ask wrap-up question", "do": "Collect answers, give feedback" }
+      ],
+      "teacherExplanation": "Para 1 introducing the concept...\\n\\nPara 2 explaining with a NAMED KZN reference...\\n\\nPara 3 connecting to student life...",
+      "teacherVocabulary": [
+        { "word": "key term", "simpleMeaning": "plain language definition", "isiZuluSupport": "isiZulu translation" }
+      ],
+      "teacherDiscussionQuestions": ["Open question 1?", "Open question 2?", "Open question 3?"],
+      "teacherLocalExample": "2-3 sentences naming a specific KZN person or business.",
+      "teacherDevicePlan": {
+        "ifEnoughDevices": "How to run if every student has a phone",
+        "ifSharedDevices": "Rotation plan for 4-6 students sharing one device",
+        "ifNoInternet": "Blackboard-only fallback using printed steps or verbal walk-through"
+      },
+      "teacherCommonMistakes": [
+        { "mistake": "What students typically get wrong", "teacherResponse": "What teacher says or does to correct it" }
+      ],
+      "teacherAssessment": ["Visible result to check", "Question to ask class", "Output to collect from students"],
+      "teacherTimeGuide": ["5 min: opening", "10 min: explain", "15 min: student task", "10 min: discussion", "5 min: recap"],
+      "teacherWrapUpQuestion": "Final question that checks understanding",
+      "teacherExtension": "Optional task for fast groups — goes deeper or applies the skill"
     }
   ]
 }
 
-Choose category as follows:
-- "phase1" for basic digital literacy (email, computer, internet, WhatsApp)
-- "phase2" for productivity tools (Word, Excel, professional communication)
-- "business" for entrepreneurship, money, and local commerce topics
-- "custom" for anything else (life skills, subject-specific, etc.)
+CRITICAL: Each lesson MUST have ALL teacher fields above. Do NOT use a single "content" string. Return structured fields exactly as shown.
 `;
+}
 
+function buildStudentPrompt(categoryRules, exerciseTypeHint, appDesignContext = "") {
+  const G = GUIDE_FILES;
+  return `You generate student task steps for KwaXolo Impact — Duolingo-style interactive exercises.
+
+${REGION_CONTEXT}
+
+════════════════════════════════════════════
+SECTION 00 — WHAT THE AGENT DOES
+════════════════════════════════════════════
+${G.whatAgentDoes}
+
+════════════════════════════════════════════
+SECTION 00 — CORE CONSTRAINTS
+════════════════════════════════════════════
+${G.constraints}
+
+════════════════════════════════════════════
+SECTION 00 — NEVER DO THIS
+════════════════════════════════════════════
+${G.neverDo}
+
+════════════════════════════════════════════
+SECTION 01 — SYSTEM PROMPT
+════════════════════════════════════════════
+${G.systemPrompt}
+
+════════════════════════════════════════════
+SECTION 03 — EXERCISE TYPES SPECIFICATION
+════════════════════════════════════════════
+${G.exerciseTypes}
+
+════════════════════════════════════════════
+SECTION 03 — STUDENT TASK STRUCTURE
+════════════════════════════════════════════
+${G.taskStructure}
+
+════════════════════════════════════════════
+SECTION 03 — INTERACTION PATTERNS
+════════════════════════════════════════════
+${G.interactionPat}
+
+════════════════════════════════════════════
+SECTION 04 — CONTENT TEMPLATES OVERVIEW
+════════════════════════════════════════════
+${G.templateOverview}
+
+${categoryRules ? `════════════════════════════════════════════
+SECTION 04 — CATEGORY-SPECIFIC RULES FOR THIS TOPIC
+════════════════════════════════════════════
+${categoryRules}` : ""}
+
+════════════════════════════════════════════
+SECTION 05 — ENGLISH WRITING STANDARD
+════════════════════════════════════════════
+${G.englishStandard}
+
+════════════════════════════════════════════
+SECTION 05 — ISIZULU HOVER WORD RULES
+════════════════════════════════════════════
+${G.hoverRules}
+
+════════════════════════════════════════════
+SECTION 06 — DESIGN SYSTEM
+════════════════════════════════════════════
+${G.brandColors}
+
+${G.typography}
+
+${appDesignContext ? `════════════════════════════════════════════
+SECTION 09 — APP UI DESIGN REFERENCE
+════════════════════════════════════════════
+${appDesignContext}` : ""}
+
+════════════════════════════════════════════
+SCREEN TYPES — assign one per step
+════════════════════════════════════════════
+${SCREEN_TYPES}
+
+════════════════════════════════════════════
+SECTION 07 — OUTPUT FORMAT (student HTML spec)
+════════════════════════════════════════════
+${G.studentHtmlSpec}
+
+════════════════════════════════════════════
+EXERCISE TYPE ASSIGNMENT (MANDATORY — do NOT deviate)
+════════════════════════════════════════════
+${exerciseTypeHint}
+
+════════════════════════════════════════════
+SECTION 08 — QUALITY CHECKLIST
+════════════════════════════════════════════
+${G.qualityChecklist}
+
+════════════════════════════════════════════
+EXAMPLE OF A GOOD STUDENT TASK
+════════════════════════════════════════════
+${G.exampleTask}
+
+════════════════════════════════════════════
+FEW-SHOT EXAMPLES FROM TEACHER FEEDBACK
+════════════════════════════════════════════
+${loadFewShotExamples() || "No examples yet — generate high quality content."}
+
+────────────────────────────────────────────
+RESPONSE FORMAT
+────────────────────────────────────────────
+Return valid JSON only — no markdown fences, no commentary.
+You will receive the teacher's course JSON. Return studentTask for each lesson.
+
+STEP COUNT: Generate exactly 10 steps per lesson. If the task is very simple (1-2 screens), generate 10 steps. If the task is complex (6+ screens), generate up to 13 steps. NEVER fewer than 10.
+
+Step 1 MUST always be screenType "android_home" — the student starts at the phone home screen.
+
+{
+  "lessons": [
+    {
+      "studentTask": {
+        "appName": "Exact app store name (e.g. Gmail, WhatsApp Business, Canva)",
+        "appColor": "#hex brand color of the app",
+        "appTextColor": "#fff or #1A1A1A for readability on appColor",
+        "taskTitle": "Task title max 8 words matching topic",
+        "taskIntro": "One active-voice sentence: what student will HAVE when done",
+        "whatYouWillDo": "One active-voice sentence",
+        "steps": [
+          {
+            "number": 1,
+            "screenType": "android_home",
+            "screenName": "Home Screen",
+            "targetLabel": "Play Store",
+            "teach": "EXACTLY 3 sentences: (1) what student sees on screen, (2) what to do and which button/field, (3) what to do if something goes wrong.",
+            "exerciseType": "tap_correct",
+            "question": "Question student must answer to advance",
+            "options": ["A","B","C","D"],
+            "correctAnswer": "B",
+            "feedbackCorrect": "Confirms what they learned. Names the button/screen. 1 sentence.",
+            "feedbackWrong": "Names WHERE on screen to look (top-right, blue bar, etc). Never just 'Try again'. 1 sentence.",
+            "tip": "Common mistake or empty string"
+          }
+        ],
+        "thinkAboutThis": "Personal reflection question connecting task to real life — not yes/no — requires having done the task",
+        "taskReflection": "Same as thinkAboutThis but longer form — 1-2 sentences",
+        "time": "10-15 minutes"
+      }
+    }
+  ]
+}
+`;
+}
+
+// Convert structured teacher fields → frontend-compatible content + keyPoints
+function buildLessonContent(lesson) {
+  const parts = [];
+
+  if (lesson.teacherObjective) {
+    parts.push(`LEARNING OBJECTIVE\n${lesson.teacherObjective}`);
+  }
+
+  if (lesson.teacherPrep?.length) {
+    parts.push(`TEACHER PREPARATION\n${lesson.teacherPrep.map(p => `- ${p}`).join("\n")}`);
+  }
+
+  if (lesson.teacherBoardPoints?.length) {
+    parts.push(`WRITE ON THE BOARD\n${lesson.teacherBoardPoints.map(p => `- ${p}`).join("\n")}`);
+  }
+
+  if (lesson.teacherBoardLayout) {
+    const bl = lesson.teacherBoardLayout;
+    const boardLines = [`BLACKBOARD LAYOUT: ${bl.title || ""}`];
+    if (bl.leftColumn?.length) boardLines.push(`Left column:\n${bl.leftColumn.map(l => `  ${l}`).join("\n")}`);
+    if (bl.rightColumn?.length) boardLines.push(`Right column:\n${bl.rightColumn.map(r => `  ${r}`).join("\n")}`);
+    if (bl.bottomLine) boardLines.push(`Bottom: ${bl.bottomLine}`);
+    parts.push(boardLines.join("\n"));
+  }
+
+  if (lesson.teacherScript?.length) {
+    parts.push(`TEACHER SCRIPT\n${lesson.teacherScript.map(s =>
+      `[${s.section} — ${s.minutes} min]\nSay: ${s.say}\nDo: ${s.do}`
+    ).join("\n\n")}`);
+  }
+
+  if (lesson.teacherExplanation) {
+    parts.push(`EXPLAIN TO STUDENTS\n${lesson.teacherExplanation}`);
+  }
+
+  if (lesson.teacherVocabulary?.length) {
+    parts.push(`VOCABULARY\n${lesson.teacherVocabulary.map(v =>
+      `- ${v.word}: ${v.simpleMeaning} (isiZulu: ${v.isiZuluSupport || "—"})`
+    ).join("\n")}`);
+  }
+
+  if (lesson.teacherDiscussionQuestions?.length) {
+    parts.push(`DISCUSSION QUESTIONS\n${lesson.teacherDiscussionQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`);
+  }
+
+  if (lesson.teacherLocalExample) {
+    parts.push(`LOCAL EXAMPLE\n${lesson.teacherLocalExample}`);
+  }
+
+  if (lesson.teacherDevicePlan) {
+    const dp = lesson.teacherDevicePlan;
+    parts.push(`DEVICE PLAN\n- Enough devices: ${dp.ifEnoughDevices || "—"}\n- Shared devices: ${dp.ifSharedDevices || "—"}\n- No internet: ${dp.ifNoInternet || "—"}`);
+  }
+
+  if (lesson.teacherCommonMistakes?.length) {
+    parts.push(`COMMON MISTAKES\n${lesson.teacherCommonMistakes.map(m =>
+      `- Mistake: ${m.mistake}\n  Response: ${m.teacherResponse}`
+    ).join("\n")}`);
+  }
+
+  if (lesson.teacherAssessment?.length) {
+    parts.push(`ASSESSMENT\n${lesson.teacherAssessment.map(a => `- ${a}`).join("\n")}`);
+  }
+
+  if (lesson.teacherTimeGuide?.length) {
+    parts.push(`TIME GUIDE\n${lesson.teacherTimeGuide.map(t => `- ${t}`).join("\n")}`);
+  }
+
+  if (lesson.teacherWrapUpQuestion) {
+    parts.push(`WRAP-UP QUESTION\n${lesson.teacherWrapUpQuestion}`);
+  }
+
+  if (lesson.teacherExtension) {
+    parts.push(`EXTENSION (fast groups)\n${lesson.teacherExtension}`);
+  }
+
+  // Set frontend-compatible fields
+  lesson.title = lesson.teacherTitle || lesson.title || "Untitled";
+  lesson.content = parts.join("\n\n");
+  lesson.keyPoints = lesson.teacherBoardPoints || [];
+
+  return lesson;
+}
+
+// ROUTE: /api/teacher/generate-course
+// Two-call pipeline: teacher lesson plan (MODEL_TEACHER) + student task (MODEL_STUDENT)
 app.post("/api/teacher/generate-course", async (req, res) => {
-  if (!openai) return res.status(503).json({ error: "OpenAI API key not configured." });
-  const { teacherInput, gradeLevel } = req.body;
+  if (!openai) return res.status(503).json({ error: "Azure OpenAI not configured." });
+  const { teacherInput, gradeLevel, templateId, category, reqId: clientReqId } = req.body;
 
   if (!teacherInput || typeof teacherInput !== "string") {
     return res.status(400).json({ error: "Missing 'teacherInput' string." });
   }
 
+  // Auto-detect category from topic keywords
+  const detectedCat = detectCategory(teacherInput);
+  const categoryRules = getCategoryRules(detectedCat);
+
+  // Inject template context if selected
+  let templateContext = "";
+  if (templateId) {
+    const tmpl = getTemplate(templateId);
+    if (tmpl) {
+      templateContext = `\n\nSELECTED TEMPLATE: ${tmpl.title}\nCategory: ${tmpl.category}\nInteraction pattern: ${tmpl.interactionPattern}\nLocal grounding hooks: ${tmpl.localGroundingHooks.join("; ")}\nTopic-specific rules: ${tmpl.rules}\n`;
+    }
+  }
+
+  const teacherSystemPrompt = buildTeacherPrompt(categoryRules) + templateContext;
+
   const userMessage = gradeLevel
     ? `Grade level: ${gradeLevel}\n\n${teacherInput}`
     : teacherInput;
 
+  const reqId = clientReqId || Date.now().toString();
+  const startTime = Date.now();
+
+  console.log(`[${new Date().toISOString()}] GENERATE COURSE (reqId: ${reqId})`);
+  console.log(`  Input: "${teacherInput.slice(0, 100)}${teacherInput.length > 100 ? "..." : ""}"`);
+  console.log(`  Category: ${detectedCat} (auto-detected)`);
+  if (gradeLevel) console.log(`  Grade: ${gradeLevel}`);
+  if (templateId) console.log(`  Template: ${templateId}`);
+
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    // ── Phase 1: Web search (optional — needs OPENAI_API_KEY) ──
+    sendProgress(reqId, 5, "Searching real app UI...");
+    console.log(`\n[1/4] Web search for UI context...`);
+    const uiContext = await searchUIContext(teacherInput);
+    if (uiContext) {
+      console.log(`[1/4] Web search returned ${uiContext.length} chars`);
+    } else {
+      console.log(`[1/4] Web search skipped (no OPENAI_API_KEY or failed)`);
+    }
+
+    // ── Phase 2: Step planning ──
+    sendProgress(reqId, 15, "Planning lesson steps...");
+    console.log(`[2/4] Planning steps...`);
+    const stepPlan = await planSteps(teacherInput, uiContext);
+    if (stepPlan) {
+      console.log(`[2/4] Plan: "${stepPlan.mainObjective}" — ${stepPlan.fullStepOutline?.length || 0} steps`);
+    } else {
+      console.log(`[2/4] Planning skipped`);
+    }
+
+    // ── Phase 3: Teacher lesson plan ──
+    sendProgress(reqId, 30, "Generating teacher lesson plan...");
+    console.log(`[3/4] Generating teacher lesson plan (${MODEL_TEACHER})...`);
+    const teacherCompletion = await openai.chat.completions.create({
+      model: MODEL_TEACHER,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: TEACHER_CONTEXT },
-        { role: "user", content: userMessage },
+        { role: "system", content: teacherSystemPrompt },
+        { role: "user", content: userMessage + (stepPlan ? `\n\nSTEP PLAN (follow this outline for the student task):\nMain objective: ${stepPlan.mainObjective}\n${stepPlan.fullStepOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}` : "") + (uiContext ? `\n\nREAL APP UI REFERENCE (use exact button names from this):\n${uiContext.slice(0, 2000)}` : "") },
       ],
       temperature: 0.7,
     });
 
-    const raw = completion.choices[0].message.content;
-    const parsed = JSON.parse(raw);
-    res.json(parsed);
+    const teacherRaw = teacherCompletion.choices[0].message.content;
+    const course = JSON.parse(teacherRaw);
+    const teacherLatency = Date.now() - startTime;
+    const teacherUsage = teacherCompletion.usage || {};
+
+    // Convert structured teacher fields → frontend-compatible content + keyPoints
+    if (Array.isArray(course.lessons)) {
+      course.lessons.forEach(buildLessonContent);
+    }
+
+    console.log(`[3/4] Done in ${(teacherLatency / 1000).toFixed(1)}s | ${teacherUsage.total_tokens || "?"} tokens | "${course.title || "untitled"}"`);
+    console.log(`      ${course.lessons?.length || 0} lessons generated`);
+
+    // ── Call 2: Student tasks ──
+    const stepCount = 10; // target steps per lesson (architecture: 10-13)
+    const exerciseTypeHint = getExerciseTypeHint(stepCount);
+    const appName = detectAppName(teacherInput);
+    const appDesignContext = appName ? loadAppDesignMD(appName) : "";
+    if (appName) console.log(`  App detected: ${appName}${appDesignContext ? " (design ref loaded)" : " (no design ref found)"}`);
+    const studentSystemPrompt = buildStudentPrompt(categoryRules, exerciseTypeHint, appDesignContext);
+
+    sendProgress(reqId, 55, "Generating student exercises...");
+    console.log(`\n[4/4] Generating student tasks (${MODEL_STUDENT})...`);
+    const studentStart = Date.now();
+
+    // Inject plan + UI context into student generation for grounded steps
+    let studentUserContent = `Here is the teacher's course. Generate a studentTask for each lesson.\n\n${JSON.stringify(course, null, 2)}`;
+    if (stepPlan) {
+      studentUserContent += `\n\nSTEP PLAN (follow this outline for ordering steps):\nMain objective: ${stepPlan.mainObjective}\n${stepPlan.fullStepOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+    }
+    if (uiContext) {
+      studentUserContent += `\n\nREAL APP UI REFERENCE (use exact button/screen names):\n${uiContext.slice(0, 2000)}`;
+    }
+
+    const studentCompletion = await openai.chat.completions.create({
+      model: MODEL_STUDENT,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: studentSystemPrompt },
+        { role: "user", content: studentUserContent },
+      ],
+      temperature: 0.7,
+    });
+
+    const studentRaw = studentCompletion.choices[0].message.content;
+    const studentData = JSON.parse(studentRaw);
+    const studentLatency = Date.now() - studentStart;
+    const studentUsage = studentCompletion.usage || {};
+    console.log(`[4/4] Done in ${(studentLatency / 1000).toFixed(1)}s | ${studentUsage.total_tokens || "?"} tokens`);
+
+    // Merge student tasks into course lessons
+    let mergedCount = 0;
+    if (Array.isArray(studentData.lessons)) {
+      for (let i = 0; i < course.lessons.length; i++) {
+        if (studentData.lessons[i]?.studentTask) {
+          course.lessons[i].studentTask = studentData.lessons[i].studentTask;
+          mergedCount++;
+        }
+      }
+    }
+    console.log(`      ${mergedCount}/${course.lessons?.length || 0} student tasks merged`);
+
+    sendProgress(reqId, 75, "Validating exercises...");
+    // Post-processing: fix missing fields and enforce rotation
+    for (const lesson of course.lessons) {
+      if (lesson.studentTask?.steps) {
+        fixMissingExerciseFields(lesson.studentTask.steps);
+        enforceExerciseRotation(lesson.studentTask.steps);
+      }
+    }
+    console.log(`      Post-processing complete`);
+
+    const totalLatency = Date.now() - startTime;
+
+    // Validation
+    const validation = validateCourseOutput(course);
+    if (validation.pass) {
+      console.log(`\n[OK] Validation passed`);
+    } else {
+      console.warn(`\n[WARN] Validation errors:`, validation.errors);
+    }
+    if (validation.warnings?.length) {
+      console.warn(`[WARN] Warnings:`, validation.warnings);
+    }
+
+    // Log generation with token usage
+    writeGenerationLog(reqId, {
+      reqId,
+      generatedAt: new Date().toISOString(),
+      inputs: { teacherInput, gradeLevel, templateId, category: detectedCat, hasWebSearch: !!uiContext, hasPlan: !!stepPlan },
+      plan: stepPlan || null,
+      models: { teacher: MODEL_TEACHER, student: MODEL_STUDENT },
+      temperature: 0.7,
+      latencyMs: { teacher: teacherLatency, student: studentLatency, total: totalLatency },
+      tokenUsage: {
+        teacher: {
+          promptTokens: teacherUsage.prompt_tokens || null,
+          completionTokens: teacherUsage.completion_tokens || null,
+          totalTokens: teacherUsage.total_tokens || null,
+        },
+        student: {
+          promptTokens: studentUsage.prompt_tokens || null,
+          completionTokens: studentUsage.completion_tokens || null,
+          totalTokens: studentUsage.total_tokens || null,
+        },
+      },
+      validation,
+      course,
+    });
+
+    const totalTokens = (teacherUsage.total_tokens || 0) + (studentUsage.total_tokens || 0);
+    console.log(`\n[DONE] Total: ${(totalLatency / 1000).toFixed(1)}s | ${totalTokens} tokens | Cat: ${detectedCat} | Log: logs/raw/${reqId}.json`);
+
+    sendProgress(reqId, 100, "Done!");
+    progressClients.delete(reqId);
+
+    course._reqId = reqId;
+    course._validation = validation;
+    course._plan = stepPlan || null;
+    res.json(course);
+
+    // Non-blocking: auto-generate app design MD if a known app was detected
+    // but no design ref exists yet. Runs after response is sent.
+    const appNameForDesign = detectAppName(teacherInput);
+    if (appNameForDesign) {
+      maybeGenerateAppDesignMD(appNameForDesign, uiContext).catch(() => {});
+    }
   } catch (err) {
-    console.error("Teacher generate-course error:", err);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`\n[ERROR] Failed after ${elapsed}s:`, err.message);
     res.status(500).json({ error: "AI request failed.", detail: err.message });
   }
 });
 
-// ============================================================================
+// EXAMPLE STORAGE — Teacher marks a generated course as good/bad
+app.post("/api/teacher/examples/good/:reqId", (req, res) => {
+  const result = saveGoodExample(req.params.reqId);
+  if (!result.ok) return res.status(404).json({ error: result.error });
+  res.json(result);
+});
+
+app.post("/api/teacher/examples/bad/:reqId", (req, res) => {
+  const { comment } = req.body;
+  const result = saveBadExample(req.params.reqId, comment);
+  if (!result.ok) return res.status(404).json({ error: result.error });
+  res.json(result);
+});
+
+app.get("/api/teacher/examples/:rating", (req, res) => {
+  res.json(listExamples(req.params.rating));
+});
+
+// TOKEN HISTORY — Aggregated usage over time
+app.get("/api/teacher/token-history", (req, res) => {
+  res.json(getTokenHistory());
+});
+
+// Mount teacher auth router AFTER the public teacher routes above
+app.use("/api/teacher", teacherRouter);
+
+// TEMPLATES — Categories and templates
+app.get("/api/templates", (req, res) => {
+  res.json({ categories: getCategories() });
+});
+
+app.get("/api/templates/:category", (req, res) => {
+  const templates = getTemplatesByCategory(req.params.category);
+  res.json(templates);
+});
+
 // ROUTE: /api/schools (public list for dropdowns)
-// ============================================================================
 app.get("/api/schools", (req, res) => {
   const schools = db.prepare("SELECT id, name, code FROM schools ORDER BY name ASC").all();
   res.json(schools);
 });
 
-// ============================================================================
 // ROUTE: /api/health
-// ============================================================================
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, hasKey: !!process.env.OPENAI_API_KEY });
+  res.json({ ok: true, hasKey: !!process.env.AZURE_OPENAI_API_KEY });
 });
 
 
@@ -551,8 +1294,8 @@ app.get("*", (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`KwaXolo backend running on http://localhost:${PORT}`);
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn("⚠️  No OPENAI_API_KEY set in .env — requests will fail.");
+  if (!process.env.AZURE_OPENAI_API_KEY) {
+    console.warn("No AZURE_OPENAI_API_KEY set in .env — AI requests will fail.");
   }
 });
 

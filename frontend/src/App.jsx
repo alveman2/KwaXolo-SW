@@ -59,7 +59,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-stone-200 bg-white">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className={`mx-auto px-6 py-4 flex items-center justify-between ${view === "opportunity" && step === "opportunity" ? "max-w-6xl" : "max-w-3xl"}`}>
           {/* Logo */}
           <button
             onClick={handleLogoClick}
@@ -168,7 +168,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-3xl w-full mx-auto px-6 py-8">
+      <main className={`flex-1 w-full mx-auto px-6 py-8 ${view === "opportunity" && step === "opportunity" ? "max-w-6xl" : "max-w-3xl"}`}>
         {/* ── Opportunity flow ── */}
         {view === "opportunity" && step === "landing" && (
           <LandingScreen onStart={() => setStep("observation")} />

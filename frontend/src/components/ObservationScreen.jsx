@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { findOpportunity } from "../lib/api.js";
 import { useStrings } from "../lib/i18n.jsx";
+import GlossaryText from "./GlossaryText.jsx";
 
 const PROMPTS = [
   "People in my village travel 3 hours to Port Shepstone to repair their phones.",
@@ -168,6 +169,11 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
             <>{t.observation.findButton}</>
           )}
         </button>
+        {loading && (
+          <div className="mt-3">
+            <ProgressBar />
+          </div>
+        )}
       </div>
     );
   }
@@ -197,9 +203,9 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
                   : "bg-stone-100 text-stone-800 rounded-bl-sm"
               }`}
             >
-              {msg.text}
+              <GlossaryText text={msg.text} />
               {msg.reasoning && (
-                <p className="mt-1 text-xs opacity-60 italic">{msg.reasoning}</p>
+                <p className="mt-1 text-xs opacity-60 italic"><GlossaryText text={msg.reasoning} /></p>
               )}
             </div>
           </div>
@@ -210,10 +216,10 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
       {currentQuestion && !loading && (
         <div className="flex justify-start mb-5">
           <div className="max-w-[80%] bg-stone-100 text-stone-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed">
-            {currentQuestion.question}
+            <GlossaryText text={currentQuestion.question} />
             {currentQuestion.reasoning && (
               <p className="mt-1 text-xs text-stone-500 italic">
-                {currentQuestion.reasoning}
+                <GlossaryText text={currentQuestion.reasoning} />
               </p>
             )}
           </div>
@@ -224,6 +230,9 @@ export default function ObservationScreen({ initialValue, onSubmit, onBack }) {
         <div className="flex justify-start mb-5">
           <div className="bg-stone-100 text-stone-500 rounded-2xl rounded-bl-sm px-4 py-3 text-sm flex items-center gap-2">
             <Spinner /> Thinking...
+          </div>
+          <div className="mt-2">
+            <ProgressBar />
           </div>
         </div>
       )}
@@ -301,5 +310,23 @@ function Spinner() {
         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
       />
     </svg>
+  );
+}
+
+function ProgressBar() {
+  return (
+    <div className="w-full bg-stone-200 rounded-full h-1.5 overflow-hidden">
+      <div
+        className="h-full bg-kwaxolo-green rounded-full"
+        style={{ animation: "progress 3s ease-out forwards" }}
+      />
+      <style>{`
+        @keyframes progress {
+          0% { width: 0%; }
+          60% { width: 65%; }
+          100% { width: 90%; }
+        }
+      `}</style>
+    </div>
   );
 }
