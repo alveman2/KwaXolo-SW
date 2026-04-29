@@ -86,9 +86,6 @@ if (openaiDirect) {
 // Uses OpenAI Responses API with web_search_preview (requires OPENAI_API_KEY)
 // Results cached to disk, reused for CACHE_TTL_DAYS (default 30 days).
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SEARCH_CACHE_DIR = path.join(__dirname, "cache", "web-search");
 const CACHE_TTL_DAYS = parseInt(process.env.SEARCH_CACHE_TTL_DAYS || "30", 10);
