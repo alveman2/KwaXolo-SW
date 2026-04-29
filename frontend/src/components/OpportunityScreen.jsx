@@ -164,33 +164,33 @@ export default function OpportunityScreen({ observation, opportunity, onRestart 
           <h3 className="text-xs uppercase tracking-widest text-stone-400 font-bold mb-4">
             Financial snapshot
           </h3>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl p-5 text-center">
-              <div className="text-[11px] uppercase tracking-widest text-emerald-600 font-semibold mb-2">
+          {/* Two compact stat cards */}
+          <div className="flex gap-3 mb-3">
+            <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+              <div className="text-[11px] uppercase tracking-widest text-emerald-600 font-semibold mb-1">
                 Monthly earnings
               </div>
-              <div className="text-3xl sm:text-4xl font-extrabold text-emerald-700 tracking-tight">
+              <div className="text-2xl font-extrabold text-emerald-700 tracking-tight leading-tight">
                 {opportunity.opportunity.estimatedMonthlyEarnings}
               </div>
             </div>
-
-            <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
-              <div className="text-[11px] uppercase tracking-widest text-amber-600 font-semibold mb-2">
+            <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+              <div className="text-[11px] uppercase tracking-widest text-amber-600 font-semibold mb-1">
                 Startup cost
               </div>
-              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700 tracking-tight">
+              <div className="text-2xl font-extrabold text-amber-700 tracking-tight leading-tight">
                 {opportunity.estimatedStartupCost}
               </div>
             </div>
-
-            <div className="flex-1 bg-blue-50 border border-blue-200 rounded-xl p-5 text-center">
-              <div className="text-[11px] uppercase tracking-widest text-blue-600 font-semibold mb-2">
-                Market size
-              </div>
-              <div className="text-2xl sm:text-3xl font-extrabold text-blue-800 tracking-tight">
-                {opportunity.opportunity.marketSize}
-              </div>
+          </div>
+          {/* Market size — full width, text flows naturally */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="text-[11px] uppercase tracking-widest text-blue-600 font-semibold mb-2">
+              Market size
             </div>
+            <p className="text-sm text-blue-900 leading-relaxed">
+              {opportunity.opportunity.marketSize}
+            </p>
           </div>
         </div>
 
