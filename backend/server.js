@@ -12,6 +12,15 @@ import path from "path";
 dotenv.config();
 
 const app = express();
+
+// Redirect HTTP → HTTPS in production (Railway sets x-forwarded-proto)
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === "production" && req.headers["x-forwarded-proto"] === "http") {
+    return res.redirect(301, "https://" + req.headers.host + req.url);
+  }
+  next();
+});
+
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
