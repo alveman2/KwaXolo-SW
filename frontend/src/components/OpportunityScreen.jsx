@@ -166,22 +166,26 @@ export default function OpportunityScreen({ observation, opportunity, onRestart 
           </h3>
           {/* Two compact stat cards */}
           <div className="flex gap-3 mb-3">
-            <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
-              <div className="text-[11px] uppercase tracking-widest text-emerald-600 font-semibold mb-1">
-                Monthly earnings
+            {opportunity.opportunity.estimatedMonthlyEarnings && (
+              <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+                <div className="text-[11px] uppercase tracking-widest text-emerald-600 font-semibold mb-1">
+                  Monthly earnings
+                </div>
+                <div className="text-2xl font-extrabold text-emerald-700 tracking-tight leading-tight">
+                  {opportunity.opportunity.estimatedMonthlyEarnings}
+                </div>
               </div>
-              <div className="text-2xl font-extrabold text-emerald-700 tracking-tight leading-tight">
-                {opportunity.opportunity.estimatedMonthlyEarnings}
+            )}
+            {opportunity.estimatedStartupCost && (
+              <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+                <div className="text-[11px] uppercase tracking-widest text-amber-600 font-semibold mb-1">
+                  Startup cost
+                </div>
+                <div className="text-2xl font-extrabold text-amber-700 tracking-tight leading-tight">
+                  {opportunity.estimatedStartupCost}
+                </div>
               </div>
-            </div>
-            <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-              <div className="text-[11px] uppercase tracking-widest text-amber-600 font-semibold mb-1">
-                Startup cost
-              </div>
-              <div className="text-2xl font-extrabold text-amber-700 tracking-tight leading-tight">
-                {opportunity.estimatedStartupCost}
-              </div>
-            </div>
+            )}
           </div>
           {/* Market size — full width, text flows naturally */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -219,46 +223,51 @@ export default function OpportunityScreen({ observation, opportunity, onRestart 
           </div>
         )}
 
-        {/* Divider */}
-        <div className="border-t border-stone-100" />
-
         {/* First steps + Skills — side by side */}
-        <div className="px-8 py-6 grid lg:grid-cols-5 gap-8">
-          <div className="lg:col-span-3">
-            <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wide mb-4">
-              Your first three steps
-            </h3>
-            <ol className="space-y-3">
-              {opportunity.firstSteps.map((step, i) => (
-                <li key={i} className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-kwaxolo-green text-white font-bold text-sm flex items-center justify-center shadow-sm">
-                    {i + 1}
+        {((opportunity.firstSteps?.length > 0) || (opportunity.skillsNeeded?.length > 0)) && (
+          <>
+            <div className="border-t border-stone-100" />
+            <div className="px-8 py-6 grid lg:grid-cols-5 gap-8">
+              {opportunity.firstSteps?.length > 0 && (
+                <div className="lg:col-span-3">
+                  <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wide mb-4">
+                    Your first three steps
+                  </h3>
+                  <ol className="space-y-3">
+                    {opportunity.firstSteps.map((step, i) => (
+                      <li key={i} className="flex gap-3">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-kwaxolo-green text-white font-bold text-sm flex items-center justify-center shadow-sm">
+                          {i + 1}
+                        </div>
+                        <div className="text-sm text-stone-700 pt-1 leading-relaxed"><GlossaryText text={step} /></div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {opportunity.skillsNeeded?.length > 0 && (
+                <div className="lg:col-span-2">
+                  <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wide mb-4">
+                    Skills needed
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {opportunity.skillsNeeded.map((skill, i) => (
+                      <span
+                        key={i}
+                        className="bg-kwaxolo-blue/10 text-kwaxolo-blue px-3 py-1.5 rounded-full text-xs font-semibold"
+                      >
+                        <GlossaryText text={skill} />
+                      </span>
+                    ))}
                   </div>
-                  <div className="text-sm text-stone-700 pt-1 leading-relaxed"><GlossaryText text={step} /></div>
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="lg:col-span-2">
-            <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wide mb-4">
-              Skills needed
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {opportunity.skillsNeeded.map((skill, i) => (
-                <span
-                  key={i}
-                  className="bg-kwaxolo-blue/10 text-kwaxolo-blue px-3 py-1.5 rounded-full text-xs font-semibold"
-                >
-                  <GlossaryText text={skill} />
-                </span>
-              ))}
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          </>
+        )}
 
-        {/* Divider */}
-        <div className="border-t border-stone-100" />
+        {/* Divider before community impact */}
+        {opportunity.communityImpact && <div className="border-t border-stone-100" />}
 
         {/* Community impact */}
         {opportunity.communityImpact && (
@@ -427,7 +436,7 @@ export default function OpportunityScreen({ observation, opportunity, onRestart 
                 </div>
                 <div>
                   <strong>Skills to develop:</strong>{" "}
-                  {opportunity.skillsNeeded.join(", ")}
+                  {(opportunity.skillsNeeded || []).join(", ")}
                 </div>
                 <div>
                   <strong>Support requested:</strong>{" "}

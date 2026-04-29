@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { AzureOpenAI, OpenAI as OpenAIDefault } from "openai";
+import { AzureOpenAI } from "openai";
 import { db, listCourses, getCourse, createCourse } from "./db.js";
 import authRouter from "./auth.js";
 import studentRouter from "./routes/student.js";
@@ -67,22 +67,11 @@ const openai = process.env.AZURE_OPENAI_API_KEY
     })
   : null;
 
-const MODEL_TEACHER = process.env.AZURE_DEPLOYMENT_TEACHER || "gpt-5.4-mini";
-const MODEL_STUDENT = process.env.AZURE_DEPLOYMENT_STUDENT || "gpt-5.4";
+const MODEL_TEACHER   = process.env.AZURE_DEPLOYMENT_TEACHER   || "gpt-5.4-mini";
+const MODEL_STUDENT   = process.env.AZURE_DEPLOYMENT_STUDENT   || "gpt-5.4";
+const MODEL_VALIDATOR = process.env.AZURE_DEPLOYMENT_VALIDATOR || "gpt-5.4-mini";
 
-// Optional: regular OpenAI client for web search (web_search_preview tool)
-const openaiDirect = process.env.OPENAI_API_KEY
-  ? new OpenAIDefault({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
-
-if (openaiDirect) {
-  console.log("OpenAI direct client configured — web search phase enabled");
-} else {
-  console.log("No OPENAI_API_KEY — web search phase will be skipped (UI steps may be less accurate)");
-}
-
-// PHASE 1: Web search — ground UI steps in real app buttons/screens
-// Uses OpenAI Responses API with web_search_preview (requires OPENAI_API_KEY)
+// PHASE 1: UI context — ground steps in real app buttons/screens using Azure model knowledge
 // Results cached to disk, reused for CACHE_TTL_DAYS (default 30 days).
 import fs from "fs";
 
@@ -122,34 +111,36 @@ async function searchUIContext(topic) {
   // Check cache first
   const cached = readSearchCache(topic);
   if (cached) {
-    console.log(`  Web search cache HIT (${cached.ageDays}d old): "${topic}"`);
+    console.log(`  UI context cache HIT (${cached.ageDays}d old): "${topic}"`);
     return cached.result;
   }
 
-  if (!openaiDirect) return "";
+  if (!openai) return "";
   try {
-    const response = await openaiDirect.responses.create({
-      model: "gpt-4o-mini",
-      tools: [{ type: "web_search_preview" }],
-      input: `Find a detailed step-by-step tutorial for: "${topic}" on an Android smartphone.
+    const response = await openai.chat.completions.create({
+      model: MODEL_VALIDATOR,
+      max_completion_tokens: 600,
+      messages: [{
+        role: "user",
+        content: `Describe the step-by-step UI flow for: "${topic}" on an Android smartphone.
 
-I need the following for a student who has NEVER done this before:
-1. The EXACT name of every screen the user sees, in the order they appear
+For a student who has NEVER done this before, list:
+1. The EXACT name of every screen the user sees, in order
 2. The EXACT label of every button they need to tap
-3. Every form field they fill in, and what kind of information goes there
+3. Every form field they fill in, and what information goes there
 4. Any verification or confirmation steps (SMS codes, agree/accept screens, etc.)
-5. What the final success screen looks like and how the student knows they are done
-6. The 3 most common mistakes beginners make and how to avoid them
+5. What the final success screen looks like
+6. The 3 most common beginner mistakes
 
-Be very specific about button labels — use the exact text as it appears in the app.
-Under 500 words total.`
+Use exact button labels as they appear in the app. Under 500 words.`
+      }],
     });
-    const result = response.output_text;
+    const result = response.choices[0].message.content;
     writeSearchCache(topic, result);
-    console.log(`  Web search complete — cached: cache/web-search/${slugify(topic)}.json`);
+    console.log(`  UI context complete — cached: cache/web-search/${slugify(topic)}.json`);
     return result;
   } catch (e) {
-    console.warn("Web search failed (non-fatal):", e.message);
+    console.warn("UI context fetch failed (non-fatal):", e.message);
     return "";
   }
 }
@@ -158,15 +149,15 @@ Under 500 words total.`
 // If a known app is detected but no design ref exists, generate one from the
 // web search context and save it for future lessons.
 async function maybeGenerateAppDesignMD(appName, uiContext) {
-  if (!appName || !openaiDirect) return;
+  if (!appName || !openai) return;
   const existing = loadAppDesignMD(appName);
   if (existing) return;
 
   const APP_DESIGN_SAVE_DIR = path.join(__dirname, "agent-guide", "09-app-design-refs", appName);
   try {
     fs.mkdirSync(APP_DESIGN_SAVE_DIR, { recursive: true });
-    const response = await openaiDirect.chat.completions.create({
-      model: "gpt-4o-mini",
+    const response = await openai.chat.completions.create({
+      model: MODEL_VALIDATOR,
       max_tokens: 1500,
       messages: [{
         role: "user",
@@ -535,8 +526,9 @@ app.post("/api/opportunity", async (req, res) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: MODEL_TEACHER,
+      model: MODEL_STUDENT,
       response_format: { type: "json_object" },
+      max_completion_tokens: 3000,
       messages: [
         { role: "system", content: KWAXOLO_CONTEXT },
         ...priorMessages,
@@ -546,6 +538,59 @@ app.post("/api/opportunity", async (req, res) => {
 
     const raw = completion.choices[0].message.content;
     const parsed = JSON.parse(raw);
+
+    // If the model returned a "ready" response but omitted required fields,
+    // make one follow-up call to fill in only the missing pieces.
+    if (parsed.opportunity) {
+      const missing = [];
+      if (!Array.isArray(parsed.firstSteps)   || parsed.firstSteps.length === 0)   missing.push("firstSteps");
+      if (!Array.isArray(parsed.skillsNeeded) || parsed.skillsNeeded.length === 0) missing.push("skillsNeeded");
+      if (!parsed.estimatedStartupCost)  missing.push("estimatedStartupCost");
+      if (!parsed.successStory)          missing.push("successStory");
+      if (!parsed.communityImpact)       missing.push("communityImpact");
+      if (!parsed.connectToMsenti)       missing.push("connectToMsenti");
+
+      if (missing.length > 0) {
+        console.log(`  Opportunity incomplete — filling missing fields: ${missing.join(", ")}`);
+        try {
+          const fill = await openai.chat.completions.create({
+            model: MODEL_STUDENT,
+            response_format: { type: "json_object" },
+            max_completion_tokens: 1500,
+            messages: [{
+              role: "user",
+              content: `You identified this business opportunity for someone in KwaXolo, rural KwaZulu-Natal:
+
+Opportunity: "${parsed.opportunity.title}"
+Summary: ${parsed.opportunity.summary}
+Observation: ${observation}
+
+Now add the following missing fields and return ONLY a JSON object containing them:
+
+${missing.includes("firstSteps") ? `"firstSteps": ["Step 1: very specific, doable this week.", "Step 2: builds on step 1.", "Step 3: gets to first customer or first revenue."],` : ""}
+${missing.includes("skillsNeeded") ? `"skillsNeeded": ["skill 1", "skill 2", "skill 3"],` : ""}
+${missing.includes("estimatedStartupCost") ? `"estimatedStartupCost": "Concrete rand amount or range, broken down (e.g. 'R3,000–R5,000: R1,500 for tools, R1,000 for first stock, R500 for transport')",` : ""}
+${missing.includes("successStory") ? `"successStory": { "name": "Real person from rural South Africa who did something similar", "story": "2-3 sentences on what they did and what they achieved." },` : ""}
+${missing.includes("communityImpact") ? `"communityImpact": { "founderBenefit": "1 sentence on personal benefit.", "familyBenefit": "1 sentence on family benefit.", "communityBenefit": "2-3 sentences on KwaXolo community benefit." },` : ""}
+${missing.includes("connectToMsenti") ? `"connectToMsenti": "1-2 sentences on what Msenti Hub specifically can help with for this idea."` : ""}
+
+Be specific to KwaXolo. Use rand (R). Reference real local places and people.`
+            }],
+          });
+          const extra = JSON.parse(fill.choices[0].message.content);
+          Object.assign(parsed, extra);
+        } catch (fillErr) {
+          console.warn("  Fill-in call failed (non-fatal):", fillErr.message);
+        }
+      }
+    }
+
+    // Final safety: ensure array fields are never undefined
+    if (parsed.opportunity) {
+      if (!Array.isArray(parsed.firstSteps))   parsed.firstSteps   = [];
+      if (!Array.isArray(parsed.skillsNeeded)) parsed.skillsNeeded = [];
+    }
+
     res.json(parsed);
   } catch (err) {
     console.error("Azure OpenAI error:", err);
@@ -1209,7 +1254,7 @@ async function validateExercises(lesson) {
 
   try {
     const response = await openai.chat.completions.create({
-      model: MODEL_TEACHER,
+      model: MODEL_VALIDATOR,
       response_format: { type: "json_object" },
       max_completion_tokens: 800,
       messages: [{
@@ -1285,7 +1330,7 @@ async function validateScreenTypes(lesson, topic) {
     ).join("\n");
 
     const response = await openai.chat.completions.create({
-      model: MODEL_TEACHER,
+      model: MODEL_VALIDATOR,
       response_format: { type: "json_object" },
       max_completion_tokens: 1200,
       messages: [{
