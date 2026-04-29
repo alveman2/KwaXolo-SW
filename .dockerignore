@@ -1,0 +1,9 @@
+node_modules
+frontend/node_modules
+backend/node_modules
+frontend/.vite
+backend/kwaxolo.db
+backend/kwaxolo.db-shm
+backend/kwaxolo.db-wal
+.env
+.env.local
