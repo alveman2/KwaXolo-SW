@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { generateCourse, createCourse } from "../lib/api.js";
 import { useStrings } from "../lib/i18n.jsx";
+import PhoneSimulator from "./PhoneSimulator.jsx";
 
 const GRADE_OPTIONS_VALUES = [
   { value: "", key: "mixedGrade" },
@@ -500,23 +501,37 @@ const EXERCISE_TYPE_COLOR = {
 
 function StudentTaskPreview({ task }) {
   const [expanded, setExpanded] = useState(false);
+  const [showSimulator, setShowSimulator] = useState(false);
 
   return (
     <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center justify-between text-left"
-      >
-        <div>
-          <div className="text-xs uppercase tracking-wide text-orange-600 font-bold mb-1">
-            Student Task ({task.steps?.length || 0} steps)
+      {showSimulator && (
+        <PhoneSimulator task={task} onClose={() => setShowSimulator(false)} />
+      )}
+
+      <div className="flex items-start justify-between gap-3 mb-0">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="flex-1 flex items-center justify-between text-left"
+        >
+          <div>
+            <div className="text-xs uppercase tracking-wide text-orange-600 font-bold mb-1">
+              Student Task ({task.steps?.length || 0} steps)
+            </div>
+            {task.whatYouWillDo && (
+              <p className="text-sm text-stone-700">{task.whatYouWillDo}</p>
+            )}
           </div>
-          {task.whatYouWillDo && (
-            <p className="text-sm text-stone-700">{task.whatYouWillDo}</p>
-          )}
-        </div>
-        <ChevronIcon open={expanded} />
-      </button>
+          <ChevronIcon open={expanded} />
+        </button>
+
+        <button
+          onClick={() => setShowSimulator(true)}
+          className="flex-shrink-0 flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+        >
+          📱 Try on phone
+        </button>
+      </div>
 
       {expanded && (
         <div className="mt-3 space-y-2">
