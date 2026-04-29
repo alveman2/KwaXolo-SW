@@ -14,7 +14,7 @@ RUN cd frontend && npm run build
 
 # Install backend deps (better-sqlite3 needs native compilation)
 COPY backend/package*.json ./backend/
-RUN cd backend && npm install --build-from-source
+RUN cd backend && npm install
 
 COPY backend/ ./backend/
 

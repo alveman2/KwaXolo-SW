@@ -7,6 +7,21 @@ import authRouter from "./auth.js";
 import studentRouter from "./routes/student.js";
 import teacherRouter from "./routes/teacher.js";
 import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Catch and log any unhandled crashes so they show up in Railway deploy logs
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason);
+  process.exit(1);
+});
 
 
 dotenv.config();
@@ -524,10 +539,13 @@ app.get("/api/health", (req, res) => {
 });
 
 
-app.use(express.static(path.join(process.cwd(), "../frontend/dist")));
+const frontendDist = path.join(__dirname, "../frontend/dist");
+console.log("Serving frontend from:", frontendDist);
+
+app.use(express.static(frontendDist));
 
 app.get("*", (req, res) => {
-  res.sendFile(path.join(process.cwd(), "../frontend/dist/index.html"));
+  res.sendFile(path.join(frontendDist, "index.html"));
 });
 
 const PORT = process.env.PORT || 3001;
