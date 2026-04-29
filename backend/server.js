@@ -1,8 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { AzureOpenAI } from "openai";
-import OpenAIDefault from "openai";
+import { AzureOpenAI, OpenAI as OpenAIDefault } from "openai";
 import { db, listCourses, getCourse, createCourse } from "./db.js";
 import authRouter from "./auth.js";
 import studentRouter from "./routes/student.js";
@@ -73,7 +72,7 @@ const MODEL_STUDENT = process.env.AZURE_DEPLOYMENT_STUDENT || "gpt-5.4";
 
 // Optional: regular OpenAI client for web search (web_search_preview tool)
 const openaiDirect = process.env.OPENAI_API_KEY
-  ? new OpenAIDefault.default({ apiKey: process.env.OPENAI_API_KEY })
+  ? new OpenAIDefault({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
 if (openaiDirect) {
