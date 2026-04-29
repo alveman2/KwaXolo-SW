@@ -39,7 +39,7 @@ export async function createCourse(course) {
   return res.json();
 }
 
-export async function generateCourse(teacherInput, gradeLevel, onProgress) {
+export async function generateCourse({ topic, struggles, time, context, gradeLevel } = {}, onProgress) {
   const reqId = Date.now().toString();
 
   // Connect to SSE progress stream if callback provided
@@ -58,7 +58,7 @@ export async function generateCourse(teacherInput, gradeLevel, onProgress) {
     const res = await fetch("/api/teacher/generate-course", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ teacherInput, gradeLevel, reqId }),
+      body: JSON.stringify({ topic, struggles, time, context, gradeLevel, reqId }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

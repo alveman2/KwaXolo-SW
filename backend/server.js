@@ -194,16 +194,17 @@ Under 600 words. Markdown format.`
   }
 }
 
-// PHASE 2: Step planning — plan a thorough 10-step outline before generating
+// PHASE 2: Step planning — calibrated to task difficulty (10-13 steps)
 async function planSteps(topic, uiContext) {
   if (!openai) return null;
   try {
     const response = await openai.chat.completions.create({
       model: MODEL_TEACHER,
       response_format: { type: "json_object" },
+      max_tokens: 3500,
       messages: [{
         role: "user",
-        content: `Create a thorough step plan for teaching a complete beginner: "${topic}"
+        content: `Create a step plan for teaching a complete beginner: "${topic}"
 
 Student: 13–18 years old, rural KwaZulu-Natal, South Africa. Basic Android phone.
 Has NEVER used this app or done this task before. Treat every screen as completely new.
@@ -211,35 +212,42 @@ Has NEVER used this app or done this task before. Treat every screen as complete
 Real app UI from web search:
 ${uiContext || "Use your knowledge of the real app UI."}
 
-RULES FOR THE STEP PLAN:
-- Return EXACTLY 10 steps. NEVER more.
-- If the task seems to need more than 10, merge related screens into one step.
-- Start from the ABSOLUTE beginning:
-    → If the app needs installing: Step 1 = Open Play Store
-    → If the app needs an account: include EVERY signup screen as its own step
-- Every screen the user sees = its own step
-- Every form that needs filling = its own step (or grouped if on the same screen)
-- Every verification step (SMS code, agree button, confirm screen) = its own step
-- The FINAL step must show the student COMPLETING the main goal, not just setting up:
-    → "Send email" task: last step = tap Send, see sent confirmation
-    → "Create listing" task: last step = listing published, visible to others
-    → "Set up profile" task: last step = profile saved, visible to others
+STEP COUNT — calibrate to actual task difficulty:
+  Simple task (1–2 screens, 1 goal):     10–11 steps
+  Medium task (3–5 screens, setup flow): 10–12 steps
+  Complex task (6+ screens, multi-goal): 12–13 steps
+
+ABSOLUTE LIMIT: never return more than 13 steps. If the task has more details, combine closely related fields or confirmations into one clear step, but keep the final step as the real completed goal.
+
+RULES:
+- Start from the ABSOLUTE beginning of what the student must do:
+    → App not installed: Step 1 = Open Play Store → find app → tap Install
+    → New account needed: include EVERY signup screen as its own step
+- Every distinct screen the user sees = its own step
+- Every form field set = its own step
+- Every confirmation / permission / SMS code screen = its own step
+- The FINAL step must show the student completing the main goal (not just setting up)
+- Maximum 13 steps total. This is non-negotiable.
 - Name the specific screen and button in each step description
 
 Return JSON:
 {
+  "difficulty": "simple | medium | complex",
   "mainObjective": "One sentence — what the student will have DONE by the final step",
   "fullStepOutline": [
     "Step 1: [screen name] — [exact action and button]",
-    "Step 2: [screen name] — [exact action and button]",
-    ...exactly 10 steps...
+    "Step 2: [screen name] — [exact action and button]"
   ]
 }`
       }]
     });
 
     const plan = JSON.parse(response.choices[0].message.content);
-    plan.fullStepOutline = (plan.fullStepOutline || []).slice(0, 10);
+    if (plan.fullStepOutline?.length > 13) {
+      console.warn(`  ⚠ Plan returned ${plan.fullStepOutline.length} steps — trimming to 13`);
+      plan.fullStepOutline = plan.fullStepOutline.slice(0, 13);
+    }
+    console.log(`  → Plan [${plan.difficulty || "?"}]: "${plan.mainObjective}" — ${plan.fullStepOutline?.length || 0} steps`);
     return plan;
   } catch (e) {
     console.warn("Step planning failed (non-fatal):", e.message);
@@ -646,8 +654,752 @@ app.post("/api/courses", (req, res) => {
   res.status(201).json(course);
 });
 
-// PROMPT BUILDERS — inject agent guide files dynamically
+// ── Alias guide file content to Marcus's variable names ──────────────────────
+const EXAMPLE_LESSON   = GUIDE_FILES.exampleLesson;
+const EXAMPLE_TASK     = GUIDE_FILES.exampleTask;
+const CONSTRAINTS      = GUIDE_FILES.constraints;
+const ENGLISH_STD      = GUIDE_FILES.englishStandard;
+const HOVER_RULES      = GUIDE_FILES.hoverRules;
+const LESSON_STRUCT    = GUIDE_FILES.lessonStructure;
+const QUALITY_CHECK    = GUIDE_FILES.qualityChecklist;
+const EXERCISE_SPEC    = GUIDE_FILES.exerciseTypes;
+const INTERACTION_PAT  = GUIDE_FILES.interactionPat;
+const TASK_STRUCTURE   = GUIDE_FILES.taskStructure;
 
+// ── Screen type targets ──────────────────────────────────────────────────────
+const SCREEN_TARGETS = {
+  android_home:        ["Play Store","Gmail","WhatsApp","WhatsApp Business","Facebook","Instagram","TikTok","Canva","Google Maps","Google Sheets","YouTube","Settings","Files","Calculator","Phone","Messages","Chrome","All apps"],
+  play_store_search:   ["Search for apps & games","Voice search","Back"],
+  play_store_app:      ["Install","Open","Back"],
+  chrome_browser:      ["Address bar","Search bar","Back","Forward","Tabs","Menu"],
+  gmail_welcome:       ["Create account","Sign in"],
+  gmail_account_type:  ["For myself","For my child","For work or my business"],
+  gmail_signup_name:   ["First name","Last name","Next"],
+  gmail_signup_user:   ["Username","Gmail address","Next"],
+  gmail_signup_pass:   ["Password","Confirm","Next"],
+  gmail_inbox:         ["Compose"],
+  gmail_compose:       ["To","Subject","Body","Send"],
+  whatsapp_welcome:    ["Agree and Continue"],
+  whatsapp_phone:      ["Phone number","Next"],
+  whatsapp_verify:     ["SMS code","Verify"],
+  whatsapp_setup_name: ["Profile photo","Your name","Next"],
+  whatsapp_chat_list:  ["New chat"],
+  whatsapp_chat:       ["Type a message","Send"],
+  whatsapp_business:   ["Profile photo","Business name","Category","Description","Business hours","Save"],
+  facebook_feed:       ["What's on your mind","Photo","Marketplace","Home","Menu","Search"],
+  facebook_create_post:["Post","Write something","Photo/Video","Tag People","Feeling"],
+  facebook_marketplace:["Sell"],
+  fb_listing_form:     ["Add photo","Price","Title","Category","Location","Description","Next"],
+  sheets_blank:        ["Cell A1","Cell B1","Cell C1","Cell A2","Cell B2","Cell C2","Cell A3","Cell B3","Cell C3"],
+  sheets_data:         ["Date","Description","Amount","Row 5","Total"],
+};
+
+const DEFAULT_TARGET_BY_SCREEN = {
+  android_home:        "Play Store",
+  play_store_search:   "Search for apps & games",
+  play_store_app:      "Install",
+  gmail_welcome:       "Create account",
+  gmail_account_type:  "For myself",
+  gmail_signup_name:   "Next",
+  gmail_signup_user:   "Next",
+  gmail_signup_pass:   "Next",
+  gmail_inbox:         "Compose",
+  gmail_compose:       "Send",
+  whatsapp_welcome:    "Agree and Continue",
+  whatsapp_phone:      "Next",
+  whatsapp_verify:     "SMS code",
+  whatsapp_setup_name: "Next",
+  whatsapp_chat_list:  "New chat",
+  whatsapp_chat:       "Send",
+  whatsapp_business:   "Save",
+  facebook_feed:       "Marketplace",
+  facebook_create_post:"Post",
+  facebook_marketplace:"Sell",
+  fb_listing_form:     "Next",
+  sheets_blank:        "Cell A1",
+  sheets_data:         "Amount",
+  chrome_browser:      "Address bar",
+};
+
+function screenTargetContractBlock() {
+  return Object.entries(SCREEN_TARGETS)
+    .map(([screen, targets]) => `${screen}: ${targets.join(", ")}`)
+    .join("\n");
+}
+
+function labelMatches(elLabel, targetLabel) {
+  if (!targetLabel) return false;
+  const clean = s => String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const el = clean(elLabel), tg = clean(targetLabel);
+  if (!el || !tg) return false;
+  if (el === tg || el.includes(tg) || tg.includes(el)) return true;
+  const stop = new Set(["the","and","for","your","this","that","then","from","with","into","how","what","you","tap","press","click","now","next"]);
+  const sig = s => s.split(" ").filter(w => w.length > 2 && !stop.has(w));
+  return sig(el).some(w => sig(tg).includes(w));
+}
+
+function visibleTargetsForStep(step, lesson) {
+  const base = SCREEN_TARGETS[step.screenType] || [];
+  const appName = lesson.appName || "";
+  if (step.screenType === "android_home" && appName) return [...new Set([...base, appName])];
+  if (step.screenType === "play_store_search" && appName) return [...new Set([...base, appName])];
+  if (step.screenType === "generic" && step.targetLabel) return [step.targetLabel, "Input"];
+  return base;
+}
+
+function normalizeTargetLabel(step, lesson) {
+  const targets = visibleTargetsForStep(step, lesson);
+  if (!targets.length) return true;
+  const current = step.targetLabel || "";
+  const exact = targets.find(t => labelMatches(t, current));
+  if (exact) {
+    if (step.targetLabel !== exact) step.targetLabel = exact;
+    return true;
+  }
+  step.targetLabel = DEFAULT_TARGET_BY_SCREEN[step.screenType] || targets[0];
+  return false;
+}
+
+function inferScreenTypeFromStep(step, lesson) {
+  const t = [step.screenName, step.targetLabel, step.teach, step.question].filter(Boolean).join(" ").toLowerCase();
+  const app = (lesson.appName || "").toLowerCase();
+
+  if (Number(step.number) === 1 && (t.includes("home screen") || t.includes("play store") || t.includes("open") || t.includes("find"))) {
+    return "android_home";
+  }
+  if (t.includes("app page") || t.includes("app listing") || t.includes("tap install") || t.includes("install button") || t.includes("download the app") || t.includes("button changes to open") || (step.targetLabel||"").toLowerCase() === "install" || (step.targetLabel||"").toLowerCase() === "open") {
+    return "play_store_app";
+  }
+  if (t.includes("search for apps") || t.includes("search bar") || t.includes("type the app name") || (step.targetLabel||"").toLowerCase() === "search for apps & games") {
+    return "play_store_search";
+  }
+  if (app.includes("gmail") && (t.includes("account type") || t.includes("for myself"))) return "gmail_account_type";
+  if (app.includes("gmail") && (t.includes("welcome to gmail") || (t.includes("create account") && t.includes("sign in")))) return "gmail_welcome";
+  if (app.includes("facebook") && (t.includes("marketplace icon") || t.includes("shopping bag") || t.includes("main facebook screen"))) return "facebook_feed";
+  if (app.includes("facebook") && (t.includes("marketplace screen") || t.includes("marketplace browse") || t.includes("tap sell"))) return "facebook_marketplace";
+  return "";
+}
+
+function applyDeterministicScreenCorrections(lesson, label = "screen sync") {
+  const corrected = [];
+  (lesson.steps || []).forEach(step => {
+    if (!step) return;
+    const before = step.screenType || "generic";
+    const inferred = inferScreenTypeFromStep(step, lesson);
+    if (inferred && before !== inferred) {
+      step.screenType = inferred;
+      corrected.push(`Step ${step.number}: ${before} → ${inferred}`);
+    }
+  });
+  if (corrected.length) console.warn(`  ⚠ ${label}: ${corrected.join(" | ")}`);
+  return lesson;
+}
+
+// ── Common context block (shared by teacher + student prompts) ────────────────
+function commonContextBlock(catRules) {
+  const examples = loadFewShotExamples() || "";
+  return `═══════════════════════════════════════════
+REFERENCE EXAMPLES — MATCH THIS QUALITY
+═══════════════════════════════════════════
+
+REFERENCE TEACHER LESSON PLAN:
+${EXAMPLE_LESSON}
+
+REFERENCE STUDENT TASK:
+${EXAMPLE_TASK}
+
+${examples ? examples + "\n" : ""}
+═══════════════════════════════════════════
+CORE CONSTRAINTS (non-negotiable)
+═══════════════════════════════════════════
+${CONSTRAINTS}
+
+═══════════════════════════════════════════
+LANGUAGE RULES
+═══════════════════════════════════════════
+${ENGLISH_STD}
+
+═══════════════════════════════════════════
+ISIZULU HOVER WORD RULES
+═══════════════════════════════════════════
+${HOVER_RULES}
+
+═══════════════════════════════════════════
+CATEGORY-SPECIFIC RULES
+═══════════════════════════════════════════
+${catRules}
+
+═══════════════════════════════════════════
+LOCAL CONTEXT — always use named references
+═══════════════════════════════════════════
+You MUST reference at least one of these by name where local grounding applies:
+- Msenti Entrepreneurship Hub — Victor Jaca (CEO). Business registration, mentorship, IT support.
+- SEDA Port Shepstone — free government business registration
+- Dolly Dlezi — accountant at Msenti Hub
+- Caleb Phehlukwayo — former school principal, community trust figure
+- Chief Inkosi Xolo — traditional Zulu authority
+- 1LT Bakery — Thabo Shude. Started from his kitchen.
+- Hlobisile Pearl Studios — photography and events
+- Inkify — Samke Jaca and Ntokozo Gwacela, print store
+- Capitec — most accessible bank (no minimum balance)
+- MTN Mobile Money / FNB eWallet — mobile payments, no bank account required
+- WhatsApp — the PRIMARY business communication tool
+
+Generic examples are REJECTED. Name a specific person/business/place.
+
+═══════════════════════════════════════════
+WHAT THE AGENT MUST NEVER DO
+═══════════════════════════════════════════
+${GUIDE_FILES.neverDo}`;
+}
+
+// ── Phase 3a: Teacher material ────────────────────────────────────────────────
+async function generateTeacherMaterial(inputs, uiContext, plan, catRules) {
+  const systemPrompt = `You are an entrepreneurship curriculum assistant for KwaXolo Impact.
+You generate the TEACHER-FACING half of a lesson for teachers in rural KwaZulu-Natal, South Africa.
+Output is read by the teacher to deliver class with chalk and a blackboard only.
+The student-facing task steps are generated separately. Do NOT generate steps here.
+
+${REGION_CONTEXT}
+
+${commonContextBlock(catRules)}
+
+═══════════════════════════════════════════
+TEACHER LESSON PLAN STRUCTURE
+═══════════════════════════════════════════
+${LESSON_STRUCT}
+
+═══════════════════════════════════════════
+QUALITY CHECKLIST (run silently before returning)
+═══════════════════════════════════════════
+${QUALITY_CHECK}
+
+Main objective for this lesson: ${plan.mainObjective}
+
+Student task plan the teacher must prepare students for:
+${(plan.fullStepOutline || []).map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+Real app UI from web search (for context only — do not turn this into a projector demo):
+${uiContext || "(no web search context)"}`;
+
+  const userMsg = `Generate the TEACHER MATERIAL ONLY for: "${inputs.topic}"
+
+What students struggle with: ${inputs.struggles || "none noted"}
+Available class time: ${inputs.time || "45 minutes"}
+Class context: ${inputs.context || "none provided"}
+
+Return ONLY valid JSON in this exact shape:
+
+{
+  "teacherTitle": "Plain-language title, max 8 words, no jargon",
+  "teacherObjective": "By the end of this lesson, students can... [one concrete, checkable sentence]",
+  "teacherPrep": [
+    "One short thing to prepare before class",
+    "One short thing to write/check before class",
+    "One short grouping/material note"
+  ],
+  "teacherBoardPoints": ["Point 1 — max 6 words","Point 2 — max 6 words","Point 3 — max 6 words","Point 4 — max 6 words","Point 5 — max 6 words"],
+  "teacherBoardLayout": {
+    "title": "Exact title to write at top of board",
+    "leftColumn": ["Key word: simple meaning","Key word: simple meaning"],
+    "rightColumn": ["Simple class step 1","Simple class step 2","Simple class step 3"],
+    "bottomLine": "One reminder/question to keep on the board"
+  },
+  "teacherScript": [
+    { "section": "Open",    "minutes": 5,  "say": "Short words the teacher can say directly. No projector.", "do": "Physical classroom action." },
+    { "section": "Explain", "minutes": 10, "say": "Simple explanation with a NAMED KZN reference.", "do": "How to use the board and questions to teach it." },
+    { "section": "Practice","minutes": 15, "say": "How to send students into the phone task.", "do": "How to group students and walk around." },
+    { "section": "Check",   "minutes": 5,  "say": "What to ask at the end to check understanding.", "do": "What evidence to look for." }
+  ],
+  "teacherExplanation": "2 short paragraphs. Grade 8 English, one named KZN example, connects to the student task.",
+  "teacherVocabulary": [
+    { "word": "One important word", "simpleMeaning": "Simple meaning in plain English", "isiZuluSupport": "Non-empty isiZulu support word or borrowed term" }
+  ],
+  "teacherDiscussionQuestions": ["Open question 1?","Open question 2?","Open question 3?"],
+  "teacherLocalExample": "2 sentences. Sentence 1: what the named KZN person/place is and WHERE. Sentence 2: how it uses this lesson skill.",
+  "teacherDevicePlan": {
+    "ifEnoughDevices": "How to run the task if enough phones/PCs are available.",
+    "ifSharedDevices": "How groups should rotate roles when 4–6 students share one device.",
+    "ifNoInternet": "A chalk/blackboard or notebook fallback that still teaches the concept."
+  },
+  "teacherCommonMistakes": [
+    { "mistake": "Likely student mistake or confusion", "teacherResponse": "What the teacher should say or do to help" }
+  ],
+  "teacherAssessment": ["One visible result to check","One question students should answer","One notebook/group output to collect"],
+  "teacherTimeGuide": ["5 min: opening and board","10 min: explanation","15 min: student task or no-internet fallback","5 min: check and wrap-up"],
+  "teacherWrapUpQuestion": "One final question students answer in one sentence.",
+  "teacherExtension": "Optional task for faster groups."
+}
+
+teacherVocabulary MUST include 6–8 items with non-empty isiZuluSupport for every row.
+teacherLocalExample MUST first explain what the example is and where, then how it uses the topic.
+teacherExplanation AND teacherLocalExample MUST name a specific KZN entity from the local context list.`;
+
+  const response = await openai.chat.completions.create({
+    model: MODEL_TEACHER,
+    response_format: { type: "json_object" },
+    max_tokens: 8000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user",   content: userMsg }
+    ]
+  });
+
+  console.log(`  Teacher: ${response.usage?.total_tokens || "?"} tokens`);
+  return JSON.parse(response.choices[0].message.content);
+}
+
+// ── Phase 3b: Student material ────────────────────────────────────────────────
+async function generateStudentMaterial(inputs, uiContext, plan, catRules, appDesignMD) {
+  const screenTypesBlock = `
+VALID screenType VALUES (use EXACTLY one per step):
+  android_home         → Android phone home screen with app icons grid (use for step 1 when student opens an app)
+  play_store_search    → Play Store search screen with results
+  play_store_app       → App detail page: name, icon, Install/Open button, reviews
+  gmail_welcome        → Gmail first-launch welcome: "Create account" + "Sign in" buttons
+  gmail_account_type   → Google account type menu: "For myself", "For my child", "For work or my business"
+  gmail_signup_name    → Enter first name, last name
+  gmail_signup_user    → Choose Gmail address
+  gmail_signup_pass    → Create a strong password
+  gmail_inbox          → Gmail inbox listing received emails
+  gmail_compose        → Compose window: To, Subject, Body fields
+  whatsapp_welcome     → WhatsApp first-launch: logo + "Agree and Continue"
+  whatsapp_phone       → Enter phone number screen
+  whatsapp_verify      → 6-digit SMS code entry screen
+  whatsapp_setup_name  → Enter your name screen
+  whatsapp_chat_list   → Main WhatsApp chat list (home)
+  whatsapp_chat        → Open conversation with messages
+  whatsapp_business    → WhatsApp Business: profile setup
+  facebook_feed        → Facebook news feed
+  facebook_create_post → Post composer with photo/text options
+  facebook_marketplace → Marketplace browse screen with listings grid
+  fb_listing_form      → Create listing form: photo, price, title, location
+  sheets_blank         → New empty Google Sheets spreadsheet
+  sheets_data          → Spreadsheet with column headers and data rows
+  chrome_browser       → Chrome browser: address bar, search box, or results page
+  generic              → Any app not listed
+
+VISUAL ACCURACY RULES:
+- Step 1 → MUST be android_home (student taps app icon from home screen)
+- Gmail first-launch welcome (Create account + Sign in) → gmail_welcome, NOT generic
+- Gmail account type menu (For myself) → gmail_account_type, NOT gmail_welcome
+- Creating Gmail account → gmail_welcome → gmail_account_type → gmail_signup_name → gmail_signup_user → gmail_signup_pass
+- Chrome/browser steps → MUST be chrome_browser, NOT play_store_search or generic`;
+
+  const systemPrompt = `You are an entrepreneurship curriculum assistant for KwaXolo Impact.
+You generate the STUDENT-FACING task — the Duolingo-style step-by-step phone walkthrough.
+The teacher-facing lesson plan is generated separately. Focus all effort on the steps.
+
+${REGION_CONTEXT}
+
+${commonContextBlock(catRules)}
+
+═══════════════════════════════════════════
+STUDENT TASK STRUCTURE
+═══════════════════════════════════════════
+${TASK_STRUCTURE}
+
+═══════════════════════════════════════════
+EXERCISE TYPES (Duolingo-style active learning)
+═══════════════════════════════════════════
+${EXERCISE_SPEC}
+
+═══════════════════════════════════════════
+INTERACTION PATTERNS AND FAIL-RECOVERY
+═══════════════════════════════════════════
+${INTERACTION_PAT}
+
+═══════════════════════════════════════════
+PHONE SCREEN TYPES
+═══════════════════════════════════════════
+${screenTypesBlock}
+
+VISIBLE TARGET CONTRACT — targetLabel must be one of the visible controls for that screenType:
+${screenTargetContractBlock()}
+${appDesignMD ? `\n═══════════════════════════════════════════\nAPP UI DESIGN REFERENCE\n═══════════════════════════════════════════\n${appDesignMD}` : ""}
+═══════════════════════════════════════════
+QUALITY CHECKLIST (run silently before returning)
+═══════════════════════════════════════════
+${QUALITY_CHECK}
+
+═══════════════════════════════════════════
+STEP PLAN TO FOLLOW EXACTLY
+Main objective: ${plan.mainObjective}
+═══════════════════════════════════════════
+Expand EACH of these into a full step object. Do not merge. Do not skip.
+${(plan.fullStepOutline || []).map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+Real app UI from web search (use exact button and screen names):
+${uiContext || "Use your knowledge of the real app UI."}`;
+
+  const userMsg = `Generate the STUDENT TASK ONLY for: "${inputs.topic}"
+
+You must generate ALL ${(plan.fullStepOutline || []).length} steps listed in the step plan above.
+Never generate more than 13 steps total. Target 10–13 steps.
+
+Return ONLY valid JSON in this exact shape:
+
+{
+  "appName": "Exact app name as it appears in the app store",
+  "appColor": "#hex brand colour",
+  "appTextColor": "#fff or #1A1A1A",
+  "taskTitle": "Task title matching the lesson topic",
+  "taskIntro": "One active-voice sentence: what the student will HAVE when they finish",
+  "whatYouWillDo": "One active-voice sentence",
+  "taskTime": "10–15 minutes",
+  "thinkAboutThis": "Personal reflection question connecting to real life, cannot be yes/no",
+  "taskReflection": "Same as thinkAboutThis but longer form — 1-2 sentences",
+  "steps": [
+    {
+      "number": 1,
+      "screenType": "android_home",
+      "screenName": "Home Screen",
+      "targetLabel": "Play Store",
+      "sampleData": { "Label shown on phone": "Concrete dummy value" },
+      "teach": "2–3 sentences. What is on this screen. What to do and why. Fail-recovery hint if needed.",
+      "exerciseType": "tap_correct",
+      "question": "The question the student must answer correctly to advance.",
+      "options": ["Option A","Option B","Option C","Option D"],
+      "correctAnswer": "Option B",
+      "acceptedAnswers": [],
+      "tiles": [],
+      "correctOrder": [],
+      "pairs": [],
+      "instruction": "",
+      "visibleResult": "",
+      "feedbackCorrect": "Confirms what they just learned. Names the button/screen. 1 sentence.",
+      "feedbackWrong": "Tells exactly WHERE to look or what to try. Never just 'Try again'. 1 sentence.",
+      "tip": "One specific common mistake for this step, or empty string"
+    }
+  ]
+}
+
+FIELD RULES BY EXERCISE TYPE:
+- tap_correct:    fill options (3–4 items) + correctAnswer. Others empty.
+- fill_blank:     fill acceptedAnswers (lowercase strings array). Others empty.
+- arrange_steps:  fill tiles (shuffled) + correctOrder (correct sequence). Others empty.
+- match_pairs:    fill pairs as [{term, match}] (max 4 pairs). Others empty.
+- do_and_confirm: fill instruction + visibleResult + options + correctAnswer. Others empty.
+
+Always include feedbackCorrect AND feedbackWrong for EVERY step.
+Always include targetLabel for EVERY step. Must match a visible button/icon/field on that screenType.
+Use sampleData when the screen shows user/business/payment/listing/account details. Use safe dummy data:
+  Payment: Recipient "Thandi Ndlovu", Mobile "072 123 4567", Amount "R50.00", Reference "Lunch order"
+  Customer/email: Customer "Ms Dlamini", Email "customer@example.com"
+  Listing: Product "School calculator", Price "R120", Location "KwaXolo"
+  Account: Name "Thandi Ndlovu", Business "Thandi's Snacks", Username "thandi.ndlovu"
+Vary exerciseTypes — never more than 3 tap_correct in a row.
+Use do_and_confirm for any step requiring real phone action.
+Use arrange_steps at least once if the topic involves a sequence.`;
+
+  const response = await openai.chat.completions.create({
+    model: MODEL_STUDENT,
+    response_format: { type: "json_object" },
+    max_tokens: 16000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user",   content: userMsg }
+    ]
+  });
+
+  console.log(`  Student: ${response.usage?.total_tokens || "?"} tokens`);
+  return JSON.parse(response.choices[0].message.content);
+}
+
+// ── Phase 3: Parallel teacher + student generation ────────────────────────────
+async function generateLesson(inputs, uiContext, plan) {
+  const cat = detectCategory(inputs.topic);
+  const catRules = getCategoryRules(cat);
+  const appName = detectAppName(inputs.topic);
+  const appDesignMD = appName ? loadAppDesignMD(appName) : "";
+
+  console.log(`  Category: ${cat} | App: ${appName || "(none)"} | Teacher: ${MODEL_TEACHER} | Student: ${MODEL_STUDENT}`);
+
+  const [teacherPart, studentPart] = await Promise.all([
+    generateTeacherMaterial(inputs, uiContext, plan, catRules),
+    generateStudentMaterial(inputs, uiContext, plan, catRules, appDesignMD),
+  ]);
+
+  const lesson = { ...teacherPart, ...studentPart };
+
+  // Non-blocking: auto-generate app design MD for new apps
+  if (appName && !appDesignMD) {
+    maybeGenerateAppDesignMD(appName, uiContext).catch(() => {});
+  }
+
+  return lesson;
+}
+
+// ── Validator 1: step count ───────────────────────────────────────────────────
+async function validateStepCount(lesson, topic, plan) {
+  const count = (lesson.steps || []).length;
+  if (count > 13) {
+    lesson.steps = lesson.steps.slice(0, 13).map((s, i) => ({ ...s, number: i + 1 }));
+    console.warn(`  ⚠ Step count capped at 13`);
+    return lesson;
+  }
+  const minByDifficulty = { simple: 10, medium: 10, complex: 12 };
+  const min = Math.min(minByDifficulty[plan?.difficulty] || 10, 13);
+  if (count >= min) {
+    console.log(`  → Step count OK: ${count} steps`);
+    return lesson;
+  }
+
+  console.log(`  ⚠ Only ${count} steps — requesting missing steps to reach ${min}`);
+  const existing = lesson.steps.map(s =>
+    `Step ${s.number}: [${s.screenType}] ${s.screenName} — ${(s.teach || "").slice(0, 100)}`
+  ).join("\n");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: MODEL_STUDENT,
+      response_format: { type: "json_object" },
+      max_tokens: 6000,
+      messages: [{
+        role: "user",
+        content: `A lesson about "${topic}" only has ${count} steps. It needs at least ${min} and at most 13.
+Main objective: ${plan?.mainObjective}
+
+Existing steps:
+${existing}
+
+Generate the MISSING steps to reach at least ${min} total. Continue naturally from the last step.
+Use the same step schema. Vary the exerciseTypes. Never exceed 13 total.
+
+${screenTargetContractBlock()}
+
+Return JSON: { "additionalSteps": [ ...step objects... ] }`
+      }]
+    });
+
+    const extra = JSON.parse(response.choices[0].message.content);
+    if (extra.additionalSteps?.length > 0) {
+      const offset = lesson.steps.length;
+      const slots = Math.max(0, 13 - offset);
+      lesson.steps = [
+        ...lesson.steps,
+        ...extra.additionalSteps.slice(0, slots).map((s, i) => ({ ...s, number: offset + i + 1 }))
+      ];
+      console.log(`  → Added ${extra.additionalSteps.length} steps — now ${lesson.steps.length} total`);
+    }
+  } catch (e) {
+    console.warn("  ⚠ Step count validator failed (non-fatal):", e.message);
+  }
+  return lesson;
+}
+
+// ── Validator 2: local grounding ──────────────────────────────────────────────
+const KNOWN_KZN_ENTITIES = [
+  "msenti","seda","1lt bakery","inkify","hlobisile pearl studios",
+  "victor jaca","dolly dlezi","caleb phehlukwayo","chief inkosi xolo",
+  "thabo shude","samke jaca","ntokozo gwacela",
+  "mtn mobile money","mtn momo","capitec",
+  "port shepstone","kwazulu-natal","kwazulu natal"
+];
+
+function validateLocalGrounding(lesson) {
+  const combined = (lesson.teacherExplanation || "") + " " + (lesson.teacherLocalExample || "");
+  const passed = KNOWN_KZN_ENTITIES.some(name => combined.toLowerCase().includes(name));
+  console.log(passed ? "  → Local grounding check passed" : "  ⚠ Local grounding check FAILED — no named KZN entity found");
+  return lesson;
+}
+
+// ── Validator 3: exercise fields ──────────────────────────────────────────────
+async function validateExercises(lesson) {
+  const summary = lesson.steps.map(s =>
+    `Step ${s.number}: type="${s.exerciseType}", options=${JSON.stringify(s.options||[])}, correctAnswer="${s.correctAnswer||""}", acceptedAnswers=${JSON.stringify(s.acceptedAnswers||[])}, tiles=${(s.tiles||[]).length}, pairs=${(s.pairs||[]).length}, feedbackCorrect="${(s.feedbackCorrect||"").slice(0,40)}", feedbackWrong="${(s.feedbackWrong||"").slice(0,40)}"`
+  ).join("\n");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: MODEL_TEACHER,
+      response_format: { type: "json_object" },
+      max_tokens: 800,
+      messages: [{
+        role: "user",
+        content: `Check these ${lesson.steps.length} lesson steps for REAL problems only:
+${summary}
+
+Flag only genuine issues:
+1. exerciseType missing or not one of the 5 valid types
+2. tap_correct: no options or no correctAnswer
+3. fill_blank: empty acceptedAnswers
+4. arrange_steps: no tiles or no correctOrder
+5. match_pairs: no pairs
+6. do_and_confirm: no instruction or no options
+7. feedbackCorrect empty or just "Correct!"
+8. feedbackWrong empty or just "Try again"
+9. All steps identical exerciseType
+
+Return JSON: { "valid": true } if no real issues.
+Return JSON: { "valid": false, "issues": ["Step 2: ..."] } listing real issues only.`
+      }]
+    });
+
+    const check = JSON.parse(response.choices[0].message.content);
+    if (!check.valid && check.issues) {
+      console.warn("  ⚠ Exercise issues:", check.issues.join(" | "));
+    } else {
+      console.log(`  → Exercise validation passed (${lesson.steps.length} steps)`);
+    }
+  } catch (e) {
+    console.warn("  ⚠ Exercise validator failed (non-fatal):", e.message);
+  }
+  return lesson;
+}
+
+// ── Validator 4: screen types ─────────────────────────────────────────────────
+async function validateScreenTypes(lesson, topic) {
+  applyDeterministicScreenCorrections(lesson, "pre-validator visual sync");
+
+  // Hard rule: step 1 → android_home if it implies opening from home screen
+  if (lesson.steps[0] && lesson.steps[0].screenType !== "android_home") {
+    const firstTeach = (lesson.steps[0].teach || "").toLowerCase();
+    if (["home screen","open","find","tap","play store","app"].some(kw => firstTeach.includes(kw))) {
+      lesson.steps[0].screenType = "android_home";
+      console.log("  → Step 1 auto-corrected to android_home");
+    }
+  }
+
+  // Hard content corrections
+  lesson.steps.forEach(s => {
+    const t = (s.teach || "").toLowerCase();
+    const app = (lesson.appName || "").toLowerCase();
+    if (app.includes("gmail") && s.screenType === "generic" && (t.includes("create account") || t.includes("welcome to gmail") || (t.includes("sign in") && t.includes("create")))) {
+      s.screenType = "gmail_welcome";
+    }
+    if (app.includes("gmail") && (t.includes("account type") || t.includes("for myself"))) {
+      s.screenType = "gmail_account_type";
+    }
+    if ((s.screenType === "generic" || s.screenType === "play_store_search") && (t.includes("install button") || t.includes("tap install") || t.includes("button changes to open"))) {
+      s.screenType = "play_store_app";
+    }
+    const sn = (s.screenName || "").toLowerCase();
+    const tl = (s.targetLabel || "").toLowerCase();
+    if ((s.screenType === "play_store_search" || s.screenType === "generic") && (t.includes("chrome") || t.includes("address bar") || t.includes("browser") || sn.includes("chrome") || tl.includes("address bar")) && !t.includes("play store") && !t.includes("install")) {
+      s.screenType = "chrome_browser";
+      if (!tl || tl === "search for apps & games") s.targetLabel = "Address bar";
+    }
+  });
+
+  try {
+    const allSteps = lesson.steps.map(s =>
+      `Step ${s.number}: screenType="${s.screenType}", targetLabel="${s.targetLabel||""}", screenName="${s.screenName||""}", teach: "${(s.teach||"").slice(0,90)}"`
+    ).join("\n");
+
+    const response = await openai.chat.completions.create({
+      model: MODEL_TEACHER,
+      response_format: { type: "json_object" },
+      max_tokens: 1200,
+      messages: [{
+        role: "user",
+        content: `Lesson about "${topic}", app: ${lesson.appName || "unknown"}.
+ALL steps:
+${allSteps}
+
+Check that each screenType matches what would actually be visible at that step.
+- Step 1 → MUST be android_home
+- Install/download/progress step → MUST be play_store_app
+- Gmail first-launch (Create account + Sign in) → gmail_welcome NOT generic
+- Gmail account type (For myself) → gmail_account_type
+- Chrome browser/address bar/search steps → MUST be chrome_browser
+- targetLabel must be visibly tappable on that screenType
+
+Return JSON: { "correct": true } if all are correct.
+Return JSON: { "correct": false, "corrections": [{ "step": 1, "screenType": "android_home" }] }`
+      }]
+    });
+
+    const check = JSON.parse(response.choices[0].message.content);
+    if (!check.correct && check.corrections?.length > 0) {
+      check.corrections.forEach(({ step, screenType }) => {
+        const s = lesson.steps.find(ls => ls.number === step);
+        if (s && screenType) s.screenType = screenType;
+      });
+      console.log(`  → Screen type validation corrected ${check.corrections.length} step(s)`);
+    } else {
+      console.log("  → Screen type validation passed");
+    }
+  } catch (e) {
+    console.warn("  ⚠ Screen type validator failed (non-fatal):", e.message);
+  }
+
+  applyDeterministicScreenCorrections(lesson, "post-validator visual sync");
+  return lesson;
+}
+
+function validateVisibleTargets(lesson) {
+  applyDeterministicScreenCorrections(lesson, "pre-target visual sync");
+  const corrected = [];
+  (lesson.steps || []).forEach(s => {
+    if (!s) return;
+    const before = s.targetLabel || "";
+    const valid = normalizeTargetLabel(s, lesson);
+    if (!valid || before !== (s.targetLabel || "")) {
+      corrected.push(`Step ${s.number}: [${s.screenType}] "${before||"(empty)"}" → "${s.targetLabel||""}"`);
+    }
+  });
+  if (corrected.length) console.warn("  ⚠ Target sync corrected:", corrected.join(" | "));
+  else console.log("  → Visible target validation passed");
+  return lesson;
+}
+
+// ── Sample data injection ─────────────────────────────────────────────────────
+function needsSampleData(step, lesson) {
+  const text = [step.screenType, step.screenName, step.teach || ""].join(" ").toLowerCase();
+  const app = (lesson.appName || "").toLowerCase();
+  return (
+    step.screenType === "generic" ||
+    /confirm|review|summary|recipient|amount|payment|money|send|transfer|cash|momo|mobile money|reference|invoice|quote|customer|listing|price|product|email|message|account|profile|business/.test(text) ||
+    /money|momo|bank|wallet|marketplace|business/.test(app)
+  );
+}
+
+function sampleDataForStep(step, lesson) {
+  const text = [step.screenName, step.teach || ""].join(" ").toLowerCase();
+  const app = (lesson.appName || "").toLowerCase();
+  const data = {};
+  if (/money|momo|mobile money|payment|transfer|send|recipient|amount|cash|wallet/.test(text + " " + app)) {
+    Object.assign(data, { "Recipient": "Thandi Ndlovu", "Mobile number": "072 123 4567", "Amount": "R50.00", "Reference": "Lunch order" });
+    if (/confirm|review|summary/.test(text)) { data["Fee"] = "R0.00"; data["Total"] = "R50.00"; }
+  }
+  if (/invoice|quote|customer|email/.test(text)) {
+    Object.assign(data, { "Customer": "Ms Dlamini", "Email": "customer@example.com", "Subject": "Quote for printing", "Message": "Hello, here is the quote we discussed." });
+  }
+  if (/listing|marketplace|product|price|sell/.test(text)) {
+    Object.assign(data, { "Product": "School calculator", "Price": "R120", "Location": "KwaXolo", "Description": "Used but working well" });
+  }
+  if (/account|profile|business|username|password/.test(text)) {
+    Object.assign(data, { "Name": "Thandi Ndlovu", "Business": "Thandi's Snacks", "Username": "thandi.ndlovu", "Password example": "River-2026!" });
+  }
+  if (!Object.keys(data).length && needsSampleData(step, lesson)) {
+    Object.assign(data, { "Practice name": "Thandi Ndlovu", "Practice phone": "072 123 4567" });
+  }
+  return data;
+}
+
+function ensureSampleData(lesson) {
+  let added = 0;
+  (lesson.steps || []).forEach(step => {
+    if (!step || !needsSampleData(step, lesson)) return;
+    const current = step.sampleData && typeof step.sampleData === "object" ? step.sampleData : {};
+    const hasUsefulData = Object.values(current).some(v => String(v || "").trim());
+    if (hasUsefulData) return;
+    step.sampleData = sampleDataForStep(step, lesson);
+    if (Object.keys(step.sampleData).length) added++;
+  });
+  if (added) console.log(`  → Added dummy sample data to ${added} step(s)`);
+  return lesson;
+}
+
+// Convert structured teacher fields → frontend-compatible content + keyPoints
+function buildLessonContent(lesson) {
+  lesson.title = lesson.teacherTitle || lesson.title || "Untitled";
+  lesson.keyPoints = lesson.teacherBoardPoints || [];
+  return lesson;
+}
+
+// PLACEHOLDER — kept for backward compatibility (not used in new pipeline)
 function buildTeacherPrompt(categoryRules) {
   const G = GUIDE_FILES;
   return `You generate teacher lesson plans for KwaXolo Impact — entrepreneurship education in rural KwaZulu-Natal.
@@ -940,289 +1692,121 @@ Step 1 MUST always be screenType "android_home" — the student starts at the ph
 `;
 }
 
-// Convert structured teacher fields → frontend-compatible content + keyPoints
-function buildLessonContent(lesson) {
-  const parts = [];
-
-  if (lesson.teacherObjective) {
-    parts.push(`LEARNING OBJECTIVE\n${lesson.teacherObjective}`);
-  }
-
-  if (lesson.teacherPrep?.length) {
-    parts.push(`TEACHER PREPARATION\n${lesson.teacherPrep.map(p => `- ${p}`).join("\n")}`);
-  }
-
-  if (lesson.teacherBoardPoints?.length) {
-    parts.push(`WRITE ON THE BOARD\n${lesson.teacherBoardPoints.map(p => `- ${p}`).join("\n")}`);
-  }
-
-  if (lesson.teacherBoardLayout) {
-    const bl = lesson.teacherBoardLayout;
-    const boardLines = [`BLACKBOARD LAYOUT: ${bl.title || ""}`];
-    if (bl.leftColumn?.length) boardLines.push(`Left column:\n${bl.leftColumn.map(l => `  ${l}`).join("\n")}`);
-    if (bl.rightColumn?.length) boardLines.push(`Right column:\n${bl.rightColumn.map(r => `  ${r}`).join("\n")}`);
-    if (bl.bottomLine) boardLines.push(`Bottom: ${bl.bottomLine}`);
-    parts.push(boardLines.join("\n"));
-  }
-
-  if (lesson.teacherScript?.length) {
-    parts.push(`TEACHER SCRIPT\n${lesson.teacherScript.map(s =>
-      `[${s.section} — ${s.minutes} min]\nSay: ${s.say}\nDo: ${s.do}`
-    ).join("\n\n")}`);
-  }
-
-  if (lesson.teacherExplanation) {
-    parts.push(`EXPLAIN TO STUDENTS\n${lesson.teacherExplanation}`);
-  }
-
-  if (lesson.teacherVocabulary?.length) {
-    parts.push(`VOCABULARY\n${lesson.teacherVocabulary.map(v =>
-      `- ${v.word}: ${v.simpleMeaning} (isiZulu: ${v.isiZuluSupport || "—"})`
-    ).join("\n")}`);
-  }
-
-  if (lesson.teacherDiscussionQuestions?.length) {
-    parts.push(`DISCUSSION QUESTIONS\n${lesson.teacherDiscussionQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`);
-  }
-
-  if (lesson.teacherLocalExample) {
-    parts.push(`LOCAL EXAMPLE\n${lesson.teacherLocalExample}`);
-  }
-
-  if (lesson.teacherDevicePlan) {
-    const dp = lesson.teacherDevicePlan;
-    parts.push(`DEVICE PLAN\n- Enough devices: ${dp.ifEnoughDevices || "—"}\n- Shared devices: ${dp.ifSharedDevices || "—"}\n- No internet: ${dp.ifNoInternet || "—"}`);
-  }
-
-  if (lesson.teacherCommonMistakes?.length) {
-    parts.push(`COMMON MISTAKES\n${lesson.teacherCommonMistakes.map(m =>
-      `- Mistake: ${m.mistake}\n  Response: ${m.teacherResponse}`
-    ).join("\n")}`);
-  }
-
-  if (lesson.teacherAssessment?.length) {
-    parts.push(`ASSESSMENT\n${lesson.teacherAssessment.map(a => `- ${a}`).join("\n")}`);
-  }
-
-  if (lesson.teacherTimeGuide?.length) {
-    parts.push(`TIME GUIDE\n${lesson.teacherTimeGuide.map(t => `- ${t}`).join("\n")}`);
-  }
-
-  if (lesson.teacherWrapUpQuestion) {
-    parts.push(`WRAP-UP QUESTION\n${lesson.teacherWrapUpQuestion}`);
-  }
-
-  if (lesson.teacherExtension) {
-    parts.push(`EXTENSION (fast groups)\n${lesson.teacherExtension}`);
-  }
-
-  // Set frontend-compatible fields
-  lesson.title = lesson.teacherTitle || lesson.title || "Untitled";
-  lesson.content = parts.join("\n\n");
-  lesson.keyPoints = lesson.teacherBoardPoints || [];
-
-  return lesson;
-}
-
 // ROUTE: /api/teacher/generate-course
-// Two-call pipeline: teacher lesson plan (MODEL_TEACHER) + student task (MODEL_STUDENT)
+// Marcus's pipeline: parallel teacher+student, 4 AI validators, sampleData injection
 app.post("/api/teacher/generate-course", async (req, res) => {
   if (!openai) return res.status(503).json({ error: "Azure OpenAI not configured." });
-  const { teacherInput, gradeLevel, templateId, category, reqId: clientReqId } = req.body;
 
-  if (!teacherInput || typeof teacherInput !== "string") {
-    return res.status(400).json({ error: "Missing 'teacherInput' string." });
+  // Accept both old format { teacherInput, gradeLevel } and new { topic, struggles, time, context }
+  const { teacherInput, gradeLevel, topic: topicParam, struggles, time, context, reqId: clientReqId } = req.body;
+  const topic = topicParam || teacherInput;
+  if (!topic || typeof topic !== "string") {
+    return res.status(400).json({ error: "Missing 'topic' or 'teacherInput' string." });
   }
 
-  // Auto-detect category from topic keywords
-  const detectedCat = detectCategory(teacherInput);
-  const categoryRules = getCategoryRules(detectedCat);
-
-  // Inject template context if selected
-  let templateContext = "";
-  if (templateId) {
-    const tmpl = getTemplate(templateId);
-    if (tmpl) {
-      templateContext = `\n\nSELECTED TEMPLATE: ${tmpl.title}\nCategory: ${tmpl.category}\nInteraction pattern: ${tmpl.interactionPattern}\nLocal grounding hooks: ${tmpl.localGroundingHooks.join("; ")}\nTopic-specific rules: ${tmpl.rules}\n`;
-    }
-  }
-
-  const teacherSystemPrompt = buildTeacherPrompt(categoryRules) + templateContext;
-
-  const userMessage = gradeLevel
-    ? `Grade level: ${gradeLevel}\n\n${teacherInput}`
-    : teacherInput;
+  const inputs = {
+    topic: gradeLevel ? `Grade level: ${gradeLevel}\n\n${topic}` : topic,
+    struggles: struggles || "",
+    time: time || "45 minutes",
+    context: context || "",
+  };
 
   const reqId = clientReqId || Date.now().toString();
   const startTime = Date.now();
 
   console.log(`[${new Date().toISOString()}] GENERATE COURSE (reqId: ${reqId})`);
-  console.log(`  Input: "${teacherInput.slice(0, 100)}${teacherInput.length > 100 ? "..." : ""}"`);
-  console.log(`  Category: ${detectedCat} (auto-detected)`);
-  if (gradeLevel) console.log(`  Grade: ${gradeLevel}`);
-  if (templateId) console.log(`  Template: ${templateId}`);
+  console.log(`  Topic: "${topic.slice(0, 100)}${topic.length > 100 ? "..." : ""}"`);
 
   try {
-    // ── Phase 1: Web search (optional — needs OPENAI_API_KEY) ──
+    // ── Phase 1: Web search ──────────────────────────────────────────────────
     sendProgress(reqId, 5, "Searching real app UI...");
-    console.log(`\n[1/4] Web search for UI context...`);
-    const uiContext = await searchUIContext(teacherInput);
-    if (uiContext) {
-      console.log(`[1/4] Web search returned ${uiContext.length} chars`);
-    } else {
-      console.log(`[1/4] Web search skipped (no OPENAI_API_KEY or failed)`);
-    }
+    const uiContext = await searchUIContext(topic);
+    console.log(uiContext ? `[1] Web search: ${uiContext.length} chars` : "[1] Web search skipped");
 
-    // ── Phase 2: Step planning ──
+    // ── Phase 2: Step planning ───────────────────────────────────────────────
     sendProgress(reqId, 15, "Planning lesson steps...");
-    console.log(`[2/4] Planning steps...`);
-    const stepPlan = await planSteps(teacherInput, uiContext);
-    if (stepPlan) {
-      console.log(`[2/4] Plan: "${stepPlan.mainObjective}" — ${stepPlan.fullStepOutline?.length || 0} steps`);
-    } else {
-      console.log(`[2/4] Planning skipped`);
+    const plan = await planSteps(topic, uiContext);
+    if (!plan) return res.status(500).json({ error: "Step planning failed — no plan returned." });
+
+    // ── Phase 3: Parallel teacher + student generation ───────────────────────
+    sendProgress(reqId, 30, `Generating (${plan.difficulty || "medium"}, ${plan.fullStepOutline?.length || 0} steps)...`);
+    console.log(`[3] Generating teacher + student in parallel...`);
+    let lesson = await generateLesson(inputs, uiContext, plan);
+
+    // Flatten course wrapper fields from teacher output (title, description, etc.)
+    // The lesson object already has teacherTitle, so build course-level fields
+    const cat = detectCategory(topic);
+    const course = {
+      title: lesson.teacherTitle || topic,
+      description: lesson.teacherObjective || "",
+      category: cat,
+      level: "beginner",
+      duration_minutes: 45,
+      lessons: [lesson],
+    };
+
+    buildLessonContent(course.lessons[0]);
+
+    const genLatency = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[3] Done in ${genLatency}s | steps: ${lesson.steps?.length || 0}`);
+
+    // ── Phase 4: Validators ──────────────────────────────────────────────────
+    sendProgress(reqId, 62, "Checking step count...");
+    lesson = await validateStepCount(lesson, topic, plan);
+
+    sendProgress(reqId, 70, "Checking local grounding...");
+    lesson = validateLocalGrounding(lesson);
+
+    sendProgress(reqId, 78, "Checking exercises and screen types...");
+    await Promise.all([
+      validateExercises(lesson),
+      validateScreenTypes(lesson, topic),
+    ]);
+    lesson = validateVisibleTargets(lesson);
+    lesson = ensureSampleData(lesson);
+
+    // Fix missing exercise fields and enforce rotation
+    if (lesson.steps) {
+      fixMissingExerciseFields(lesson.steps);
+      enforceExerciseRotation(lesson.steps);
     }
 
-    // ── Phase 3: Teacher lesson plan ──
-    sendProgress(reqId, 30, "Generating teacher lesson plan...");
-    console.log(`[3/4] Generating teacher lesson plan (${MODEL_TEACHER})...`);
-    const teacherCompletion = await openai.chat.completions.create({
-      model: MODEL_TEACHER,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: teacherSystemPrompt },
-        { role: "user", content: userMessage + (stepPlan ? `\n\nSTEP PLAN (follow this outline for the student task):\nMain objective: ${stepPlan.mainObjective}\n${stepPlan.fullStepOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}` : "") + (uiContext ? `\n\nREAL APP UI REFERENCE (use exact button names from this):\n${uiContext.slice(0, 2000)}` : "") },
-      ],
-      temperature: 0.7,
-    });
-
-    const teacherRaw = teacherCompletion.choices[0].message.content;
-    const course = JSON.parse(teacherRaw);
-    const teacherLatency = Date.now() - startTime;
-    const teacherUsage = teacherCompletion.usage || {};
-
-    // Convert structured teacher fields → frontend-compatible content + keyPoints
-    if (Array.isArray(course.lessons)) {
-      course.lessons.forEach(buildLessonContent);
+    // Attach student task to lesson (PhoneSimulator expects lesson.studentTask)
+    // The new pipeline returns student fields directly on lesson, so wrap them
+    if (!lesson.studentTask && lesson.steps) {
+      lesson.studentTask = {
+        appName:       lesson.appName,
+        appColor:      lesson.appColor,
+        appTextColor:  lesson.appTextColor,
+        taskTitle:     lesson.taskTitle,
+        taskIntro:     lesson.taskIntro,
+        whatYouWillDo: lesson.whatYouWillDo,
+        taskTime:      lesson.taskTime,
+        thinkAboutThis: lesson.thinkAboutThis,
+        taskReflection: lesson.taskReflection,
+        steps:         lesson.steps,
+      };
     }
-
-    console.log(`[3/4] Done in ${(teacherLatency / 1000).toFixed(1)}s | ${teacherUsage.total_tokens || "?"} tokens | "${course.title || "untitled"}"`);
-    console.log(`      ${course.lessons?.length || 0} lessons generated`);
-
-    // ── Call 2: Student tasks ──
-    const stepCount = 10; // target steps per lesson (architecture: 10-13)
-    const exerciseTypeHint = getExerciseTypeHint(stepCount);
-    const appName = detectAppName(teacherInput);
-    const appDesignContext = appName ? loadAppDesignMD(appName) : "";
-    if (appName) console.log(`  App detected: ${appName}${appDesignContext ? " (design ref loaded)" : " (no design ref found)"}`);
-    const studentSystemPrompt = buildStudentPrompt(categoryRules, exerciseTypeHint, appDesignContext);
-
-    sendProgress(reqId, 55, "Generating student exercises...");
-    console.log(`\n[4/4] Generating student tasks (${MODEL_STUDENT})...`);
-    const studentStart = Date.now();
-
-    // Inject plan + UI context into student generation for grounded steps
-    let studentUserContent = `Here is the teacher's course. Generate a studentTask for each lesson.\n\n${JSON.stringify(course, null, 2)}`;
-    if (stepPlan) {
-      studentUserContent += `\n\nSTEP PLAN (follow this outline for ordering steps):\nMain objective: ${stepPlan.mainObjective}\n${stepPlan.fullStepOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
-    }
-    if (uiContext) {
-      studentUserContent += `\n\nREAL APP UI REFERENCE (use exact button/screen names):\n${uiContext.slice(0, 2000)}`;
-    }
-
-    const studentCompletion = await openai.chat.completions.create({
-      model: MODEL_STUDENT,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: studentSystemPrompt },
-        { role: "user", content: studentUserContent },
-      ],
-      temperature: 0.7,
-    });
-
-    const studentRaw = studentCompletion.choices[0].message.content;
-    const studentData = JSON.parse(studentRaw);
-    const studentLatency = Date.now() - studentStart;
-    const studentUsage = studentCompletion.usage || {};
-    console.log(`[4/4] Done in ${(studentLatency / 1000).toFixed(1)}s | ${studentUsage.total_tokens || "?"} tokens`);
-
-    // Merge student tasks into course lessons
-    let mergedCount = 0;
-    if (Array.isArray(studentData.lessons)) {
-      for (let i = 0; i < course.lessons.length; i++) {
-        if (studentData.lessons[i]?.studentTask) {
-          course.lessons[i].studentTask = studentData.lessons[i].studentTask;
-          mergedCount++;
-        }
-      }
-    }
-    console.log(`      ${mergedCount}/${course.lessons?.length || 0} student tasks merged`);
-
-    sendProgress(reqId, 75, "Validating exercises...");
-    // Post-processing: fix missing fields and enforce rotation
-    for (const lesson of course.lessons) {
-      if (lesson.studentTask?.steps) {
-        fixMissingExerciseFields(lesson.studentTask.steps);
-        enforceExerciseRotation(lesson.studentTask.steps);
-      }
-    }
-    console.log(`      Post-processing complete`);
 
     const totalLatency = Date.now() - startTime;
+    console.log(`\n[DONE] ${(totalLatency / 1000).toFixed(1)}s | ${lesson.steps?.length || 0} steps | Cat: ${cat}`);
 
-    // Validation
-    const validation = validateCourseOutput(course);
-    if (validation.pass) {
-      console.log(`\n[OK] Validation passed`);
-    } else {
-      console.warn(`\n[WARN] Validation errors:`, validation.errors);
-    }
-    if (validation.warnings?.length) {
-      console.warn(`[WARN] Warnings:`, validation.warnings);
-    }
-
-    // Log generation with token usage
     writeGenerationLog(reqId, {
       reqId,
       generatedAt: new Date().toISOString(),
-      inputs: { teacherInput, gradeLevel, templateId, category: detectedCat, hasWebSearch: !!uiContext, hasPlan: !!stepPlan },
-      plan: stepPlan || null,
+      inputs,
+      plan,
       models: { teacher: MODEL_TEACHER, student: MODEL_STUDENT },
-      temperature: 0.7,
-      latencyMs: { teacher: teacherLatency, student: studentLatency, total: totalLatency },
-      tokenUsage: {
-        teacher: {
-          promptTokens: teacherUsage.prompt_tokens || null,
-          completionTokens: teacherUsage.completion_tokens || null,
-          totalTokens: teacherUsage.total_tokens || null,
-        },
-        student: {
-          promptTokens: studentUsage.prompt_tokens || null,
-          completionTokens: studentUsage.completion_tokens || null,
-          totalTokens: studentUsage.total_tokens || null,
-        },
-      },
-      validation,
+      latencyMs: totalLatency,
       course,
     });
-
-    const totalTokens = (teacherUsage.total_tokens || 0) + (studentUsage.total_tokens || 0);
-    console.log(`\n[DONE] Total: ${(totalLatency / 1000).toFixed(1)}s | ${totalTokens} tokens | Cat: ${detectedCat} | Log: logs/raw/${reqId}.json`);
 
     sendProgress(reqId, 100, "Done!");
     progressClients.delete(reqId);
 
     course._reqId = reqId;
-    course._validation = validation;
-    course._plan = stepPlan || null;
+    course._plan = plan;
     res.json(course);
-
-    // Non-blocking: auto-generate app design MD if a known app was detected
-    // but no design ref exists yet. Runs after response is sent.
-    const appNameForDesign = detectAppName(teacherInput);
-    if (appNameForDesign) {
-      maybeGenerateAppDesignMD(appNameForDesign, uiContext).catch(() => {});
-    }
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.error(`\n[ERROR] Failed after ${elapsed}s:`, err.message);

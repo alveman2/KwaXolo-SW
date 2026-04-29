@@ -345,7 +345,10 @@ export default function PhoneSimulator({ task, onClose }) {
 
         {/* App bar */}
         <div className="flex-shrink-0 bg-stone-900 text-white px-5 pb-3 flex items-center gap-3">
-          <div className="w-7 h-7 rounded-xl bg-blue-500 flex items-center justify-center text-xs font-bold">
+          <div
+            className="w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold"
+            style={{ backgroundColor: task.appColor || "#3b82f6", color: task.appTextColor || "#fff" }}
+          >
             {task.appName?.[0] || "?"}
           </div>
           <div className="flex-1 min-w-0">
@@ -378,6 +381,18 @@ export default function PhoneSimulator({ task, onClose }) {
           {step.teach && (
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3">
               <p className="text-sm text-blue-900 leading-relaxed">{step.teach}</p>
+            </div>
+          )}
+
+          {/* Sample data — dummy values shown on the phone */}
+          {step.sampleData && Object.keys(step.sampleData).length > 0 && (
+            <div className="bg-stone-100 rounded-2xl p-3 space-y-1">
+              {Object.entries(step.sampleData).map(([label, value]) => (
+                <div key={label} className="flex justify-between text-xs">
+                  <span className="text-stone-500 font-medium">{label}</span>
+                  <span className="text-stone-800 font-semibold">{value}</span>
+                </div>
+              ))}
             </div>
           )}
 
@@ -420,11 +435,14 @@ export default function PhoneSimulator({ task, onClose }) {
 
           {/* Last step celebration */}
           {answered && isLast && (
-            <div className="text-center py-4">
-              <div className="text-4xl mb-2">🎉</div>
+            <div className="text-center py-4 space-y-2">
+              <div className="text-4xl">🎉</div>
               <p className="font-bold text-stone-900">Lesson complete!</p>
-              {task.taskReflection && (
-                <p className="text-sm text-stone-600 mt-1">{task.taskReflection}</p>
+              {(task.taskReflection || task.thinkAboutThis) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-left">
+                  <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">Think about this</p>
+                  <p className="text-sm text-amber-900">{task.taskReflection || task.thinkAboutThis}</p>
+                </div>
               )}
             </div>
           )}
