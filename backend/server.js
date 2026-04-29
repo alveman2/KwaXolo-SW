@@ -201,7 +201,7 @@ async function planSteps(topic, uiContext) {
     const response = await openai.chat.completions.create({
       model: MODEL_TEACHER,
       response_format: { type: "json_object" },
-      max_tokens: 3500,
+      max_completion_tokens: 3500,
       messages: [{
         role: "user",
         content: `Create a step plan for teaching a complete beginner: "${topic}"
@@ -542,7 +542,6 @@ app.post("/api/opportunity", async (req, res) => {
         ...priorMessages,
         { role: "user", content: observation },
       ],
-      temperature: 0.7,
     });
 
     const raw = completion.choices[0].message.content;
@@ -573,7 +572,6 @@ app.post("/api/refine", async (req, res) => {
         ...history,
         { role: "user", content: question },
       ],
-      temperature: 0.7,
     });
 
     res.json({ reply: completion.choices[0].message.content });
@@ -617,7 +615,6 @@ app.post("/api/translate", async (req, res) => {
         { role: "system", content: systemPrompt },
         { role: "user", content: isObject ? JSON.stringify(text) : text },
       ],
-      temperature: 0.3,
     });
 
     const raw = completion.choices[0].message.content;
@@ -938,7 +935,7 @@ teacherExplanation AND teacherLocalExample MUST name a specific KZN entity from 
   const response = await openai.chat.completions.create({
     model: MODEL_TEACHER,
     response_format: { type: "json_object" },
-    max_tokens: 8000,
+    max_completion_tokens: 8000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user",   content: userMsg }
@@ -1095,7 +1092,7 @@ Use arrange_steps at least once if the topic involves a sequence.`;
   const response = await openai.chat.completions.create({
     model: MODEL_STUDENT,
     response_format: { type: "json_object" },
-    max_tokens: 16000,
+    max_completion_tokens: 16000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user",   content: userMsg }
@@ -1154,7 +1151,7 @@ async function validateStepCount(lesson, topic, plan) {
     const response = await openai.chat.completions.create({
       model: MODEL_STUDENT,
       response_format: { type: "json_object" },
-      max_tokens: 6000,
+      max_completion_tokens: 6000,
       messages: [{
         role: "user",
         content: `A lesson about "${topic}" only has ${count} steps. It needs at least ${min} and at most 13.
@@ -1214,7 +1211,7 @@ async function validateExercises(lesson) {
     const response = await openai.chat.completions.create({
       model: MODEL_TEACHER,
       response_format: { type: "json_object" },
-      max_tokens: 800,
+      max_completion_tokens: 800,
       messages: [{
         role: "user",
         content: `Check these ${lesson.steps.length} lesson steps for REAL problems only:
@@ -1290,7 +1287,7 @@ async function validateScreenTypes(lesson, topic) {
     const response = await openai.chat.completions.create({
       model: MODEL_TEACHER,
       response_format: { type: "json_object" },
-      max_tokens: 1200,
+      max_completion_tokens: 1200,
       messages: [{
         role: "user",
         content: `Lesson about "${topic}", app: ${lesson.appName || "unknown"}.
@@ -1725,8 +1722,13 @@ app.post("/api/teacher/generate-course", async (req, res) => {
 
     // ── Phase 2: Step planning ───────────────────────────────────────────────
     sendProgress(reqId, 15, "Planning lesson steps...");
-    const plan = await planSteps(topic, uiContext);
-    if (!plan) return res.status(500).json({ error: "Step planning failed — no plan returned." });
+    const planResult = await planSteps(topic, uiContext);
+    // If planning fails, use a simple fallback so generation still proceeds
+    const plan = planResult || {
+      difficulty: "medium",
+      mainObjective: `Complete the full task: ${topic}`,
+      fullStepOutline: Array.from({ length: 10 }, (_, i) => `Step ${i + 1}: complete this step for ${topic}`),
+    };
 
     // ── Phase 3: Parallel teacher + student generation ───────────────────────
     sendProgress(reqId, 30, `Generating (${plan.difficulty || "medium"}, ${plan.fullStepOutline?.length || 0} steps)...`);
